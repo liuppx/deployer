@@ -9,9 +9,13 @@
 国外机器执行命令：./setup_ubuntu.sh
 
 
-2. 执行安装命令：
+2. 执行安装命令进行docker安装：
 
 ./install.sh
+
+3. 执行安装命令进行docker buildx 多平台构建器安装（如有需要）：
+
+./setup-buildx-multiarch.sh
 
 # 构建镜像
 
