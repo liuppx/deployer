@@ -14,7 +14,7 @@ services:
       postgres_pass: postgres
       postgres_db: graph-node
       ipfs: 'ipfs:5001'
-      ethereum: 'https://devnet.ppaix.com'
+      ethereum: 'https://blockchain.yeying.pub'
       GRAPH_LOG: info
       RUST_LOG: info
     networks:

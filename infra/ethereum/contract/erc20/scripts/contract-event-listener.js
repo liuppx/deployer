@@ -32,7 +32,7 @@ function initWeb3() {
 
         // 初始化合约
         const contractAddress = process.env.LISTEN_CONTRACT_ADDRESS;
-        const contractAbiPath = process.env.LISTEN_CONTRACT_ABI_PATH || './PaiXToken-abi.json';
+        const contractAbiPath = process.env.LISTEN_CONTRACT_ABI_PATH || './Erc20Token-abi.json';
 
         console.log(`监听合约: ${contractAddress}`);
 
@@ -154,7 +154,7 @@ function formatTokenAmount(value, decimals) {
 async function handleTransferEvent(values, event) {
     const { from, to, value } = values;
 
-    console.log(`检测到Transfer事件: ${from} -> ${to}, 金额: ${formatTokenAmount(value, decimals)} PAIX`);
+    console.log(`检测到Transfer事件: ${from} -> ${to}, 金额: ${formatTokenAmount(value, decimals)} TEST`);
 
     // 这里添加你的业务逻辑
     // 例如: 更新数据库、发送通知等
@@ -171,7 +171,7 @@ async function handleTransferEvent(values, event) {
 async function handleApprovalEvent(values, event) {
     const { owner, spender, value } = values;
 
-    console.log(`检测到Approval事件: ${owner} 授权 ${spender}, 金额: ${formatTokenAmount(value, decimals)} PAIX`);
+    console.log(`检测到Approval事件: ${owner} 授权 ${spender}, 金额: ${formatTokenAmount(value, decimals)} TEST`);
 
     // 这里添加你的业务逻辑
     // 例如: 更新数据库、发送通知等

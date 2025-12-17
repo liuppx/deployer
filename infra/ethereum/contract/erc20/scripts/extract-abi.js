@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 
 // 合约名称
-const contractName = "PaiXToken";
+const contractName = "Erc20Token";
 
 // 读取编译后的合约JSON文件
 const contractJsonPath = path.join(

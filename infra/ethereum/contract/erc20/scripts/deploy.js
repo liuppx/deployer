@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 async function main() {
-    console.log("🏓 Deploying PaiX Token to Devnet...");
+    console.log("🏓 Deploying Erc20 Token to Devnet...");
 
     try {
         // 获取部署账户
@@ -53,19 +53,19 @@ async function main() {
         console.log("Deploying Erc20Token with options:", deployOptions);
 
         // 部署合约
-        const paixToken = await Erc20Token.deploy(initialSupply, deployOptions);
+        const erc20Token = await Erc20Token.deploy(initialSupply, deployOptions);
 
         console.log("Waiting for deployment transaction...");
         
         // 等待部署交易被挖掘
-        const deploymentTx = paixToken.deploymentTransaction();
+        const deploymentTx = erc20Token.deploymentTransaction();
         if (deploymentTx) {
             console.log("Deployment transaction hash:", deploymentTx.hash);
             await deploymentTx.wait(1); // 等待 1 个确认
         }
 
         // 获取合约地址
-        const contractAddress = await paixToken.getAddress();
+        const contractAddress = await erc20Token.getAddress();
         console.log("✅ Erc20Token deployed to:", contractAddress);
 
         // 等待几个区块确认
@@ -78,12 +78,12 @@ async function main() {
         console.log("\n📋 Verifying Contract Deployment:");
         
         try {
-            const name = await paixToken.name();
-            const symbol = await paixToken.symbol();
-            const decimals = await paixToken.decimals();
-            const totalSupply = await paixToken.totalSupply();
-            const owner = await paixToken.owner();
-            const ownerBalance = await paixToken.balanceOf(deployer.address);
+            const name = await erc20Token.name();
+            const symbol = await erc20Token.symbol();
+            const decimals = await erc20Token.decimals();
+            const totalSupply = await erc20Token.totalSupply();
+            const owner = await erc20Token.owner();
+            const ownerBalance = await erc20Token.balanceOf(deployer.address);
 
             console.log("Name:", name);
             console.log("Symbol:", symbol);
@@ -171,7 +171,7 @@ async function main() {
         console.log("=".repeat(50));
 
         return {
-            contract: paixToken,
+            contract: erc20Token,
             address: contractAddress,
             deploymentInfo: deploymentInfo
         };
