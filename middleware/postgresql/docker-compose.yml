@@ -3,21 +3,22 @@ services:
     image: postgres:16-alpine
     container_name: postgres
     restart: unless-stopped
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
+    env_file:
+      - .env
     volumes:
       - ./data:/var/lib/postgresql/data
+      - ./init.db:/docker-entrypoint-initdb.d
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     networks:
       - psql-network
     command: postgres -c 'max_connections=200' -c 'shared_buffers=256MB'
     healthcheck:
-      test: ["CMD", "pg_isready"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 5
+      start_period: 30s
 networks:
   psql-network:
     name: "psql-network"
