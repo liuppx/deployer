@@ -8,8 +8,17 @@ mv .env.template .env
 
 第三步：启动容器
 docker compose up -d
+# 设置初始化语句
 
-如何新建数据库？
+1. 基于模版创建
+
+```shell
+cp -rf init.db.template init.db
+```
+
+2. 修改`01.sql`，或者新建`02.sql`
+
+# 数据库常用操作
 
 1. 进入容器
 ```bash
