@@ -18,9 +18,12 @@
 
 ### 官方脚本安装
 
+如果是国内机器安装，在`/etc/hosts`添加一行`199.232.68.133  raw.githubusercontent.com`
+
 ```bash
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 ```
+# 或者
 
 ```bash
 wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
