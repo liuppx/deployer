@@ -1,5 +1,5 @@
 name: '🐛 Bug Report[反馈缺陷]'
-# version V1.1  update on 20251208
+# version V1.2  update on 20260110
 description: 'Report an bug[反馈一个问题/缺陷]'
 title: '[Bug Report] '
 labels: ['bug']
@@ -29,7 +29,7 @@ body:
         - 'macOS'
         - 'Ubuntu'
         - 'Other Linux'
-        - 'Other'
+        - 'Unrelated'
     validations:
       required: true
   - type: textarea
