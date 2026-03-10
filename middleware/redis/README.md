@@ -1,3 +1,49 @@
+# 环境变量配置
+
+在当前目录创建 `.env` 文件，并配置 Redis 密码：
+
+```bash
+REDIS_PASSWORD=YourStrongPassword123!
+```
+
+然后启动服务：
+
+```bash
+docker compose up -d
+```
+
+使用密码连接 Redis：
+
+```bash
+docker compose exec redis redis-cli -a "$REDIS_PASSWORD"
+```
+
+# Redis 集群可用性测试
+
+在 `.env` 中配置：
+
+```bash
+REDIS_PASSWORD=YourStrongPassword123!
+# 可选，默认 127.0.0.1:6379
+REDIS_NODES=127.0.0.1:6379,127.0.0.1:6380,127.0.0.1:6381
+# 可选，默认 auto（优先本地 redis-cli，不存在则使用 docker compose exec）
+REDIS_CLI_MODE=auto
+# 可选，默认 auto（自动识别 cluster/standalone）
+REDIS_EXPECT_MODE=auto
+```
+
+说明：
+- 当前这个目录下的 `docker-compose.yml` 是单机 Redis，不是 Redis Cluster。
+- 若你要“必须是集群才通过”，设置 `REDIS_EXPECT_MODE=cluster`。
+- 若单机和集群都可接受，保持默认 `REDIS_EXPECT_MODE=auto`。
+
+执行测试脚本：
+
+```bash
+chmod +x ./test-redis-cluster.sh
+./test-redis-cluster.sh
+```
+
 
 # 登陆redis容器
 
