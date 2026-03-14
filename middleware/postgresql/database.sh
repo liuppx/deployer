@@ -11,8 +11,8 @@ usage() {
   cat <<'EOF'
 Usage:
   ./database.sh generate-env
-  ./database.sh create-db -d <db_name> [-u <user_name>]
-  ./database.sh create-db <db_name> [-u <user_name>]
+  ./database.sh create-db -d <db_name> -u <user_name>
+  ./database.sh create-db <db_name> -u <user_name>
 
 Commands:
   generate-env           Generate .env from .env.template and auto-generate POSTGRES_PASSWORD
@@ -20,7 +20,7 @@ Commands:
 
 Options for create-db:
   -d <db_name>           Database name (required)
-  -u <user_name>         Owner username (optional)
+  -u <user_name>         Owner username (required)
   -h                     Show help
 EOF
 }
@@ -105,15 +105,20 @@ load_env() {
     error "POSTGRES_PASSWORD is required in .env"
     exit 1
   fi
+  if ! POSTGRES_DB="$(read_env_var "POSTGRES_DB")"; then
+    error "POSTGRES_DB is required in .env"
+    exit 1
+  fi
 
   : "${POSTGRES_USER:?POSTGRES_USER is required in .env}"
   : "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required in .env}"
+  : "${POSTGRES_DB:?POSTGRES_DB is required in .env}"
 }
 
 run_psql() {
   local sql="$1"
   docker compose exec -T "${SERVICE_NAME}" env PGPASSWORD="${POSTGRES_PASSWORD}" \
-    psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER}" -d postgres -tAc "${sql}"
+    psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -tAc "${sql}"
 }
 
 check_container_running() {
@@ -152,10 +157,63 @@ generate_env() {
   echo ".env generated successfully: ${ENV_FILE}"
 }
 
+next_sql_sequence() {
+  local init_dir="${SCRIPT_DIR}/init.db"
+  local max_sequence=0
+  local file=""
+  local file_name=""
+  local sequence=""
+
+  mkdir -p "${init_dir}"
+
+  shopt -s nullglob
+  for file in "${init_dir}"/*.sql; do
+    file_name="$(basename "${file}")"
+    if [[ "${file_name}" =~ ^([0-9]+).*\.sql$ ]]; then
+      sequence=$((10#${BASH_REMATCH[1]}))
+      if (( sequence > max_sequence )); then
+        max_sequence="${sequence}"
+      fi
+    fi
+  done
+  shopt -u nullglob
+
+  printf '%02d\n' "$((max_sequence + 1))"
+}
+
+write_init_db_sql() {
+  local sql_file="$1"
+  local db_name="$2"
+  local db_owner="$3"
+  local create_user_sql="$4"
+
+  cat >"${sql_file}" <<EOF
+-- 根据 init.db.template/01.sql 生成
+${create_user_sql}
+CREATE DATABASE "${db_name}" OWNER "${db_owner}";
+
+GRANT ALL PRIVILEGES ON DATABASE "${db_name}" TO "${db_owner}";
+
+\connect "${db_name}"
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+EOF
+}
+
+run_psql_file() {
+  local container_sql_file="$1"
+  docker compose exec -T "${SERVICE_NAME}" env PGPASSWORD="${POSTGRES_PASSWORD}" \
+    psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -f "${container_sql_file}"
+}
+
 create_database() {
   local db_name=""
   local db_owner=""
-  local owner_specified="false"
+  local init_dir="${SCRIPT_DIR}/init.db"
+  local template_file="${SCRIPT_DIR}/init.db.template/01.sql"
+  local sequence=""
+  local sql_file_name=""
+  local sql_file_path=""
+  local container_sql_file=""
 
   OPTIND=1
   while getopts ":d:u:h" opt; do
@@ -165,7 +223,6 @@ create_database() {
         ;;
       u)
         db_owner="${OPTARG}"
-        owner_specified="true"
         ;;
       h)
         usage
@@ -199,20 +256,25 @@ create_database() {
     usage
     exit 1
   fi
+  if [ -z "${db_owner}" ]; then
+    error "Username is required. Use -u <user_name>."
+    usage
+    exit 1
+  fi
   if ! is_valid_identifier "${db_name}"; then
     error "Invalid database name '${db_name}'. Use letters/numbers/underscore/hyphen and start with a letter or underscore."
     exit 1
-  fi
-
-  load_env
-
-  if [ -z "${db_owner}" ]; then
-    db_owner="${POSTGRES_USER}"
   fi
   if ! is_valid_identifier "${db_owner}"; then
     error "Invalid username '${db_owner}'. Use letters/numbers/underscore/hyphen and start with a letter or underscore."
     exit 1
   fi
+  if [ ! -f "${template_file}" ]; then
+    error "Template SQL not found: ${template_file}"
+    exit 1
+  fi
+
+  load_env
 
   require_docker_compose
 
@@ -236,32 +298,29 @@ create_database() {
 
   local owner_exists=""
   owner_exists="$(run_psql "SELECT 1 FROM pg_roles WHERE rolname='${db_owner}';" | tr -d '[:space:]')"
+  if [ "${owner_exists}" = "1" ]; then
+    error "Username '${db_owner}' already exists. Please choose a different username."
+    exit 1
+  fi
 
   local user_password=""
-  if [ "${owner_specified}" = "true" ]; then
-    user_password="$(generate_password)"
-    if [ "${owner_exists}" = "1" ]; then
-      run_psql "ALTER ROLE \"${db_owner}\" WITH LOGIN PASSWORD '${user_password}';" >/dev/null
-      echo "Role '${db_owner}' exists. Password updated."
-    else
-      run_psql "CREATE USER \"${db_owner}\" WITH PASSWORD '${user_password}';" >/dev/null
-      echo "Role '${db_owner}' created."
-    fi
-  else
-    if [ "${owner_exists}" != "1" ]; then
-      error "Owner '${db_owner}' does not exist. Check POSTGRES_USER in .env or use -u <user_name>."
-      exit 1
-    fi
-  fi
+  local create_user_sql=""
+  user_password="$(generate_password)"
+  create_user_sql="CREATE USER \"${db_owner}\" WITH PASSWORD '${user_password}';"
 
-  run_psql "CREATE DATABASE \"${db_name}\" OWNER \"${db_owner}\";" >/dev/null
+  sequence="$(next_sql_sequence)"
+  sql_file_name="${sequence}${db_name}.sql"
+  sql_file_path="${init_dir}/${sql_file_name}"
+  container_sql_file="/docker-entrypoint-initdb.d/${sql_file_name}"
+
+  write_init_db_sql "${sql_file_path}" "${db_name}" "${db_owner}" "${create_user_sql}"
+  run_psql_file "${container_sql_file}" >/dev/null
+
   echo "Database '${db_name}' created successfully. Owner: ${db_owner}"
-
-  if [ "${owner_specified}" = "true" ]; then
-    echo "Credentials:"
-    echo "  username: ${db_owner}"
-    echo "  password: ${user_password}"
-  fi
+  echo "SQL file generated: ${sql_file_path}"
+  echo "Credentials:"
+  echo "  username: ${db_owner}"
+  echo "  password: ${user_password}"
 }
 
 main() {

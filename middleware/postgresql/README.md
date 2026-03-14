@@ -58,6 +58,25 @@ docker compose down -v && docker compose up -d
 
 ```
 
+## 使用脚本创建业务库
+
+```shell
+./database.sh create-db -d app -u app_user
+```
+
+执行流程：
+
+- 参考 `init.db.template/01.sql` 的结构，在 `init.db` 目录下生成新的 SQL 文件
+- 如果 `init.db` 没有 SQL 文件，则从 `01` 开始；如果已有文件，则取当前最大序号加 1
+- 例如已有 `01app.sql` 时，再创建 `bot` 数据库会生成 `init.db/02bot.sql`
+- SQL 文件生成后，脚本会在容器内执行 `/docker-entrypoint-initdb.d/02bot.sql` 完成数据库创建
+
+说明：
+
+- `-u` 为必填参数
+- 如果用户不存在，脚本会自动创建用户并输出随机密码
+- 如果用户已存在，脚本会报错并提示更换用户名
+
 ## 常见问题
 
 ### 报错 `pq: database "app_db_a" does not exist`
