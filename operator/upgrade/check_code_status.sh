@@ -14,6 +14,10 @@ config_file="${script_dir}/modules.conf"
 code_root="/root/code"
 package_root="/opt/package"
 transfer_script="${script_dir}/transfer_packages.sh"
+dingtalk_script="${script_dir}/../dingtalk-notify/dingtalk_reminder.py"
+dingtalk_scene="create_package"
+# True: read *_RECEIVER from .env and @userIds; False: no @
+dingtalk_need_at="${DINGTALK_NEED_AT:-False}"
 overall_status=0
 
 usage() {
@@ -29,6 +33,7 @@ upload_with_retry() {
         log "upload attempt ${attempt}/3: ${filename}"
         if bash "$transfer_script" upload "$filename" >> "$LOGFILE" 2>&1; then
             log "upload completed: ${filename}"
+            notify_dingtalk "$dingtalk_need_at" "From vm200: upload completed: ${filename}"
             return 0
         fi
         log "upload failed on attempt ${attempt}/3: ${filename}"
@@ -36,6 +41,20 @@ upload_with_retry() {
     done
 
     return 1
+}
+
+notify_dingtalk() {
+    local need_at=$1
+    local message=$2
+
+    if [[ ! -f "$dingtalk_script" ]]; then
+        log "WARN! dingtalk script is missing: ${dingtalk_script}"
+        return 0
+    fi
+
+    if ! python3 "$dingtalk_script" "$dingtalk_scene" "$need_at" "$message" >> "$LOGFILE" 2>&1; then
+        log "WARN! failed to send dingtalk notification"
+    fi
 }
 
 if [[ $# -ne 0 ]]; then
@@ -234,6 +253,7 @@ for module_name in "${MODULES[@]}"; do
 
     if ! upload_with_retry "$package_filename"; then
         log "ERROR! upload still failed after 3 retries: ${package_filename}"
+        notify_dingtalk "True" "From vm200: upload ${package_filename} failed"
         overall_status=1
         continue
     fi
