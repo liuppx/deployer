@@ -8,6 +8,9 @@ script_dir=$(cd "$(dirname "$0")" || exit 1; pwd)
 # shellcheck disable=SC1091
 source "${script_dir}/common.sh"
 
+# Use a deterministic PATH for non-login shells (cron/systemd).
+export PATH="/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
 init_log_file "check-code-status.log"
 
 config_file="${script_dir}/modules.conf"
@@ -19,6 +22,26 @@ dingtalk_scene="create_package"
 # True: read *_RECEIVER from .env and @userIds; False: no @
 dingtalk_need_at="${DINGTALK_NEED_AT:-False}"
 overall_status=0
+
+ensure_go_in_path() {
+    if command -v go >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if [[ -x /usr/local/go/bin/go ]]; then
+        export PATH="${PATH}:/usr/local/go/bin"
+    fi
+    if command -v go >/dev/null 2>&1; then
+        return 0
+    fi
+
+    # Non-login shells (cron/systemd) often miss /etc/profile PATH exports.
+    if [[ -f /etc/profile ]]; then
+        # shellcheck disable=SC1091
+        source /etc/profile >/dev/null 2>&1 || true
+    fi
+    command -v go >/dev/null 2>&1
+}
 
 usage() {
     log "Usage: $0"
@@ -142,6 +165,21 @@ select_latest_local_package() {
     [[ -n "$SELECTED_NAME" ]]
 }
 
+capture_output_package_state() {
+    local module_name=$1
+    local module_dir=$2
+    local state_file=$3
+    local package_path package_name package_hash
+
+    : > "$state_file"
+    for package_path in "${module_dir}/output/${module_name}-"*.tar.gz; do
+        [[ -f "$package_path" ]] || continue
+        package_name=$(basename "$package_path")
+        package_hash=$(sha256sum "$package_path" | awk '{print $1}')
+        printf '%s %s\n' "$package_name" "$package_hash" >> "$state_file"
+    done
+}
+
 if [[ ! -f "$transfer_script" ]]; then
     log "ERROR! transfer script is missing: ${transfer_script}"
     exit 1
@@ -150,6 +188,12 @@ fi
 mkdir -p "$package_root"
 
 log "\nbegin check code status [$(date)]"
+log "runtime PATH: ${PATH}"
+if ensure_go_in_path; then
+    log "go command detected: $(command -v go)"
+else
+    log "WARN! go command not found in PATH before module checks"
+fi
 
 for module_name in "${MODULES[@]}"; do
     log "\nhandle module [${module_name}]"
@@ -215,9 +259,13 @@ for module_name in "${MODULES[@]}"; do
         continue
     fi
 
+    build_state_before=$(mktemp)
+    capture_output_package_state "$module_name" "$module_dir" "$build_state_before"
+
     log "build package for ${module_name}: ${build_reason}"
     if ! (cd "$module_dir" && bash scripts/package.sh >> "$LOGFILE" 2>&1); then
         log "ERROR! package script failed for ${module_name}"
+        rm -f "$build_state_before"
         overall_status=1
         continue
     fi
@@ -225,6 +273,7 @@ for module_name in "${MODULES[@]}"; do
     output_packages=("${module_dir}/output/${module_name}-"*.tar.gz)
     if [[ ${#output_packages[@]} -eq 0 ]]; then
         log "ERROR! package file not found: ${module_dir}/output/${module_name}-*.tar.gz"
+        rm -f "$build_state_before"
         overall_status=1
         continue
     fi
@@ -236,6 +285,7 @@ for module_name in "${MODULES[@]}"; do
 
     if ! select_latest_local_package "$module_name" "${output_package_names[@]}"; then
         log "ERROR! failed to find valid output package for ${module_name}"
+        rm -f "$build_state_before"
         overall_status=1
         continue
     fi
@@ -244,6 +294,23 @@ for module_name in "${MODULES[@]}"; do
     package_file="${module_dir}/output/${package_filename}"
     if [[ ! -f "$package_file" ]]; then
         log "ERROR! built package is missing: ${package_file}"
+        rm -f "$build_state_before"
+        overall_status=1
+        continue
+    fi
+
+    if [[ "$SELECTED_COMMIT" != "$latest_commit" ]]; then
+        log "ERROR! built package commit (${SELECTED_COMMIT}) does not match latest code commit (${latest_commit})"
+        rm -f "$build_state_before"
+        overall_status=1
+        continue
+    fi
+
+    package_hash_after=$(sha256sum "$package_file" | awk '{print $1}')
+    package_hash_before=$(awk -v target="$package_filename" '$1 == target {print $2; exit}' "$build_state_before")
+    rm -f "$build_state_before"
+    if [[ -n "$package_hash_before" && "$package_hash_before" == "$package_hash_after" ]]; then
+        log "ERROR! no new package generated for ${module_name}: ${package_filename} unchanged after package.sh"
         overall_status=1
         continue
     fi
