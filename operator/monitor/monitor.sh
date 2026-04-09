@@ -182,7 +182,7 @@ for module_name in "${MODULES[@]}"; do
 
 ${diff_content}"
         log "sending full diff notification for ${module_name}"
-        notify_alert "$message"
+        notify_info "$message"
     else
         # Send only last 10 lines
         last_10_lines=$(tail -n 10 "$error_log")
@@ -190,7 +190,7 @@ ${diff_content}"
 
 ${last_10_lines}"
         log "sending partial diff notification for ${module_name}"
-        notify_alert "$message"
+        notify_info "$message"
     fi
 
     # Update temp error log to current state
