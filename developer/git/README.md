@@ -30,6 +30,7 @@ git config --global http.proxy socks5h://127.0.0.1:1080
 ## 添加`Github`公钥
 - 在当前开发环境中生成公私钥对`ssh-keygen`，公钥文件默认是`$HOME/.ssh/id_ed25519.pub`
 - 登陆Github -> 点击右上角头像 -> Settings (设置) -> 在左侧菜单找到 SSH and GPG keys -> 点击绿色的 New SSH key 按钮 -> 粘贴公钥文件中的内容到*key* -> 点击 Add SSH key
+- 在开发环境上执行`ssh -T git@github.com`，查看当时登陆的Github账号
 
 ## 配置`Git`账户
 在开发环境中配置用户名和邮箱：
