@@ -44,3 +44,19 @@ git config --global user.email "你的GitHub邮箱"
 ```bash
 git config core.quotepath false
 ```
+
+## 常用命令
+```bash
+# 删除上游
+git remote remove upstream
+
+# 删除本地TAG
+git tag -d <tag name>
+
+# 删除远端TAG
+git push origin :<tag name>
+
+# 修改远程仓库地址
+git remote set-url origin <请使用git协议地址>
+
+```
