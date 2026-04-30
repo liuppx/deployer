@@ -127,12 +127,12 @@ README 必须告诉使用者如何确认项目真的启动成功，例如：
 - 升级说明
 - 贡献指南
 
-如果项目包含打包脚本，建议在 README 中链接或引用 [PACKAGING.md](/Users/liuxin2/Workspace/opensource/deployer/specification/PACKAGING.md)。
+如果项目包含打包脚本，建议在 README 中链接或引用 [PACKAGING.md](./PACKAGING.md)。
 
 如果项目涉及社区协作和 PR 流程，建议引用：
 
-- [GITHUB_FORK.md](/Users/liuxin2/Workspace/opensource/deployer/specification/GITHUB_FORK.md)
-- [GITHUB_PULL_REQUEST.md](/Users/liuxin2/Workspace/opensource/deployer/specification/GITHUB_PULL_REQUEST.md)
+- [GITHUB_FORK.md](./GITHUB_FORK.md)
+- [GITHUB_PULL_REQUEST.md](./GITHUB_PULL_REQUEST.md)
 
 ## 推荐结构
 

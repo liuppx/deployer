@@ -4,19 +4,22 @@
 
 ## 文档索引
 
-- [DESIGN_PROPOSAL_TEMPLATE.md](/Users/liuxin2/Workspace/opensource/deployer/specification/DESIGN_PROPOSAL_TEMPLATE.md)  
+- [DESIGN_PROPOSAL_TEMPLATE.md](./DESIGN_PROPOSAL_TEMPLATE.md)  
   社区评审使用的详细设计方案模板（含 AI 协作记录与提示词模板）
 
-- [README_TEMPLATE.md](/Users/liuxin2/Workspace/opensource/deployer/specification/README_TEMPLATE.md)  
+- [DEPLOYMENT_TEMPLATE.md](./DEPLOYMENT_TEMPLATE.md)  
+  部署文档模板（含部署步骤、验证、回滚和 AI 编写约束）
+
+- [README_TEMPLATE.md](./README_TEMPLATE.md)  
   项目 README 编写模板与说明
 
-- [GITHUB_FORK.md](/Users/liuxin2/Workspace/opensource/deployer/specification/GITHUB_FORK.md)  
+- [GITHUB_FORK.md](./GITHUB_FORK.md)  
   Fork 协作流程说明
 
-- [GITHUB_PULL_REQUEST.md](/Users/liuxin2/Workspace/opensource/deployer/specification/GITHUB_PULL_REQUEST.md)  
+- [GITHUB_PULL_REQUEST.md](./GITHUB_PULL_REQUEST.md)  
   Pull Request 提交流程与规范
 
-- [PACKAGING.md](/Users/liuxin2/Workspace/opensource/deployer/specification/PACKAGING.md)  
+- [PACKAGING.md](./PACKAGING.md)  
   打包相关规范
 
 ## 新人最短路径（建议）

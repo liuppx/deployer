@@ -34,10 +34,10 @@
 
 新贡献者建议先看这里：
 
-- [specification/README.md](/Users/liuxin2/Workspace/opensource/deployer/specification/README.md)
-- [specification/DESIGN_PROPOSAL_TEMPLATE.md](/Users/liuxin2/Workspace/opensource/deployer/specification/DESIGN_PROPOSAL_TEMPLATE.md)
-- [specification/GITHUB_FORK.md](/Users/liuxin2/Workspace/opensource/deployer/specification/GITHUB_FORK.md)
-- [specification/GITHUB_PULL_REQUEST.md](/Users/liuxin2/Workspace/opensource/deployer/specification/GITHUB_PULL_REQUEST.md)
+- [specification/README.md](./specification/README.md)
+- [specification/DESIGN_PROPOSAL_TEMPLATE.md](./specification/DESIGN_PROPOSAL_TEMPLATE.md)
+- [specification/GITHUB_FORK.md](./specification/GITHUB_FORK.md)
+- [specification/GITHUB_PULL_REQUEST.md](./specification/GITHUB_PULL_REQUEST.md)
 
 推荐流程：
 
@@ -65,7 +65,7 @@
 
 例如 Redis 目录已提供密码模板和密码生成命令说明：
 
-- [middleware/redis/.env.template](/Users/liuxin2/Workspace/opensource/deployer/middleware/redis/.env.template)
+- [middleware/redis/.env.template](./middleware/redis/.env.template)
 
 ## 部署约定
 
