@@ -70,19 +70,90 @@ if [[ -z "${notify_from}" ]]; then
     notify_from=$(hostname)
 fi
 
-message_head="通知类型: ${notify_type} 
-通知来源: ${notify_from} 
-通知内容: "
+notify_owner="${notify_from}"
+
+notify_now() {
+    date '+%Y-%m-%d %H:%M'
+}
+
+format_release_notice() {
+    local title=$1
+    local version=$2
+    local scope=$3
+    local content=$4
+    local status=$5
+
+    cat <<EOF
+【发布完成】${title} ${version}
+
+时间：$(notify_now)
+环境：${scope}
+内容：${content}
+状态：${status}
+跟进人：${notify_owner}
+EOF
+}
+
+format_error_notice() {
+    local title=$1
+    local level=$2
+    local status=$3
+    local symptom=$4
+    local impact=$5
+    local action=$6
+    local next_step=$7
+
+    cat <<EOF
+【系统异常】${title}
+
+发现时间：$(notify_now)
+异常等级：${level}
+当前状态：${status}
+
+异常现象：
+- ${symptom}
+
+影响范围：
+- 影响用户：内部发布流程
+- 影响功能：${impact}
+- 影响环境：制品生成/上传
+
+当前判断：
+- ${action}
+
+下一步动作：
+1. ${next_step}
+2. 检查日志 ${LOGFILE}
+
+负责人：${notify_owner}
+EOF
+}
 
 upload_with_retry() {
     local filename=$1
     local attempt
+    local module_name="" version=""
+
+    module_name=${filename%%-v*}
+    if [[ -z "$module_name" || "$module_name" == "$filename" ]]; then
+        module_name="构建产物"
+    fi
+    if artifact_info_from_name "$module_name" "$filename"; then
+        version="v${PACKAGE_VERSION}"
+    else
+        version="$filename"
+    fi
 
     for attempt in 1 2 3; do
         log "upload attempt ${attempt}/3: ${filename}"
         if bash "$transfer_script" upload "$filename" >> "$LOGFILE" 2>&1; then
             log "upload completed: ${filename}"
-            notify_message "$dingtalk_need_at" "${message_head} upload completed: ${filename}"
+            notify_message "$dingtalk_need_at" "$(format_release_notice \
+                "${module_name}/构建产物" \
+                "${version}" \
+                "制品仓库" \
+                "已完成产物上传：${filename}" \
+                "已发布，验证通过")"
             return 0
         fi
         log "upload failed on attempt ${attempt}/3: ${filename}"
@@ -382,7 +453,14 @@ for module_name in "${MODULES[@]}"; do
 
     if ! upload_with_retry "$package_filename"; then
         log "ERROR! upload still failed after 3 retries: ${package_filename}"
-        notify_message "True" "${message_head} upload ${package_filename} failed"
+        notify_message "True" "$(format_error_notice \
+            "${module_name}/${notify_type}" \
+            "P2" \
+            "处理中" \
+            "产物上传连续 3 次失败：${package_filename}" \
+            "新版本产物未能同步到制品仓库" \
+            "构建已完成，故障出现在上传阶段" \
+            "检查网络、WebDAV 配置和传输脚本后重试上传")"
         overall_status=1
         continue
     fi

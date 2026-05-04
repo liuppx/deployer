@@ -46,9 +46,76 @@ if [[ -z "${notify_from}" ]]; then
     notify_from=$(hostname)
 fi
 
-message_head="通知类型: ${notify_type} 
-通知来源: ${notify_from} 
-通知内容: "
+notify_owner="${notify_from}"
+
+notify_now() {
+    date '+%Y-%m-%d %H:%M'
+}
+
+format_recovery_notice() {
+    local title=$1
+    local occurred_time=$2
+    local impact=$3
+    local reason=$4
+    local result=$5
+
+    cat <<EOF
+【恢复通知】${title}
+
+异常时间：${occurred_time}
+恢复时间：$(notify_now)
+当前状态：已恢复
+
+影响范围：
+- ${impact}
+
+原因摘要：
+- ${reason}
+
+处理结果：
+- ${result}
+
+后续动作：
+- 持续观察
+
+负责人：${notify_owner}
+EOF
+}
+
+format_error_notice() {
+    local title=$1
+    local level=$2
+    local status=$3
+    local symptom=$4
+    local impact=$5
+    local judgment=$6
+    local next_step=$7
+
+    cat <<EOF
+【系统异常】${title}
+
+发现时间：$(notify_now)
+异常等级：${level}
+当前状态：${status}
+
+异常现象：
+- ${symptom}
+
+影响范围：
+- 影响用户：使用 ${title%%/*} 的用户
+- 影响功能：${impact}
+- 影响环境：日志监控
+
+当前判断：
+- ${judgment}
+
+下一步动作：
+1. ${next_step}
+2. 检查日志 ${LOGFILE}
+
+负责人：${notify_owner}
+EOF
+}
 
 notify_dingtalk() {
     local need_at=$1
@@ -182,6 +249,14 @@ for module_name in "${MODULES[@]}"; do
     # Find current running deploy directory
     if ! find_current_deploy_dir "$module_name"; then
         log "ERROR! current deploy directory not found in ${deploy_root} for ${module_name}"
+        notify_alert "$(format_error_notice \
+            "${module_name}/${notify_type}" \
+            "P2" \
+            "处理中" \
+            "未找到当前部署目录：${deploy_root}" \
+            "无法读取 ${module_name} 的运行日志" \
+            "部署目录缺失或目录命名不符合约定" \
+            "检查部署目录结构后重新执行监控")"
         overall_status=1
         continue
     fi
@@ -223,16 +298,30 @@ for module_name in "${MODULES[@]}"; do
     # Prepare message
     if [[ "$diff_line_count" -le 10 ]]; then
         # Send all diff content
-        message="${message_head} ${current_dir_name} 新增错误日志如下：
-
+        message="$(format_error_notice \
+            "${module_name}/${notify_type}" \
+            "P2" \
+            "已发现，待排查" \
+            "${current_dir_name} 检测到 ${diff_line_count} 行新增错误日志" \
+            "${module_name} 运行日志出现新增错误" \
+            "应用仍在运行，但日志中已出现新的错误输出" \
+            "登录节点排查服务日志和运行状态")
+附加日志：
 ${diff_content}"
         log "sending full diff notification for ${module_name}"
         notify_info "$message"
     else
         # Send only last 10 lines
         last_10_lines=$(tail -n 10 "$error_log")
-        message="${message_head} ${current_dir_name} 部分错误日志如下，详情请登陆节点获取：
-
+        message="$(format_error_notice \
+            "${module_name}/${notify_type}" \
+            "P2" \
+            "已发现，待排查" \
+            "${current_dir_name} 检测到 ${diff_line_count} 行新增错误日志" \
+            "${module_name} 运行日志持续出现新增错误" \
+            "错误日志新增较多，本次仅截取最近 10 行" \
+            "登录节点获取完整日志并排查服务状态")
+附加日志（最近 10 行）：
 ${last_10_lines}"
         log "sending partial diff notification for ${module_name}"
         notify_info "$message"

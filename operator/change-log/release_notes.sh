@@ -13,6 +13,9 @@ ARCHIVE_DIR="/opt/package"
 KEEP_RAW_INPUT="false"
 DEFAULT_REMOTE="origin"
 NOTIFY_TYPE='发布通知'
+NOTIFY_SCOPE='生产环境'
+notify_from=""
+notify_owner=""
 
 load_env_file() {
   local env_file="$1"
@@ -54,6 +57,11 @@ fail() {
 
 load_runtime_config() {
   load_env_file "$script_dir/.env"
+  notify_from="${NOTIFY_FROM:-}"
+  if [[ -z "$notify_from" ]]; then
+    notify_from="$(hostname)"
+  fi
+  notify_owner="$notify_from"
   if [[ -f "$notify_common_sh" ]]; then
     # shellcheck disable=SC1090
     source "$notify_common_sh"
@@ -279,33 +287,52 @@ run_codex() {
   local repo_dir="$1"
   local raw_file="$2"
   local final_file="$3"
-  local notes_heading="$4"
+  local notes_title="$4"
+  local release_version="$5"
   local raw_payload codex_prompt codex_log_file exec_supported="false" legacy_supported="false"
 
   raw_payload="$(cat "$raw_file")"
 
   codex_prompt="$(cat <<EOF
-生成模块发布说明,下面是原始变更数据：
+请基于下面的原始变更数据，生成一份符合通知模板的发布通知：
 <raw_release_data>
 $raw_payload
 </raw_release_data>
 
 请输出中文 Markdown，要求：
-1. 标题：## $notes_heading
-2. 发布时间：（使用linux的date命令获取即可）
-3. 小节顺序固定：
-   - 新增功能
-   - 体验优化
-   - 性能提升
-   - 安全加固
-4. 每个小节使用 1、2、3 编号；无内容写“无”。
-5. 语言简洁，不要照抄英文 commit 原文。
+1. 严格使用以下结构与字段顺序输出，不要增删字段：
+   ## $notes_title
+   发布时间：YYYY-MM-DD HH:mm
+   发布版本：$release_version
+   发布范围：$NOTIFY_SCOPE
+
+   本次变更：
+   1. 新增功能：...
+   2. 体验优化：...
+   3. 性能提升：...
+   4. 安全加固：...
+
+   影响说明：
+   - 是否影响现有用户：...
+   - 是否需要重新登录/刷新/重启：...
+   - 是否涉及配置更新：...
+
+   验证状态：
+   - 已完成变更摘要生成
+   - 待发布流程执行时补充业务验证
+
+   跟进人：$notify_owner
+2. 发布时间请使用当前 Linux 时间，格式为 YYYY-MM-DD HH:mm。
+3. “本次变更”必须只保留四项，按顺序输出；每项如果没有明确内容写“无”。
+4. 内容必须基于提供的提交信息总结，语言简洁准确，不要照抄英文 commit 原文。
+5. “影响说明”只能根据变更内容做保守判断；无法确定时明确写“待确认”，不要编造。
 6. 不要包含以下信息：
    - 提交总数
    - 变更文件数
    - 代码行数变化
    - 贡献者列表
-7. 只输出最终 Markdown 正文，不要解释过程。
+   - 原始 commit 列表
+7. 只输出最终 Markdown 正文，不要解释过程，不要添加代码块。
 EOF
 )"
 
@@ -345,10 +372,9 @@ archive_has_range() {
   local dst_file="$1"
   local notify_type="$2"
   local version="$3"
-  local pattern="【${notify_type}】.*${version}"
 
   [[ -f "$dst_file" ]] || return 1
-  grep -Eq "$pattern" "$dst_file"
+  grep -Fq "发布版本：${version}" "$dst_file"
 }
 
 append_to_archive() {
@@ -432,7 +458,7 @@ for module_name in "${modules[@]}"; do
     continue
   fi
 
-  summary_heading="【$NOTIFY_TYPE】版本发布变更摘要[$module_name : $new_ref]"
+  summary_heading="【$NOTIFY_TYPE】${module_name} 已发布"
   if archive_has_range "$archive_file" "$NOTIFY_TYPE" "$new_ref"; then
     printf '模块 %s 的概要信息已存在，跳过重新生成：[%s] %s\n' "$module_name" "$NOTIFY_TYPE" "$new_ref"
     continue
@@ -448,7 +474,7 @@ for module_name in "${modules[@]}"; do
 
   printf '%s' "$raw_report" > "$raw_tmp_file"
   ensure_codex_requirements_checked
-  if ! run_codex "$repo_dir" "$raw_tmp_file" "$final_tmp_file" "$summary_heading"; then
+  if ! run_codex "$repo_dir" "$raw_tmp_file" "$final_tmp_file" "$summary_heading" "$new_ref"; then
     warn "模块 $module_name：Codex 生成失败"
     failed_count=$((failed_count + 1))
     continue

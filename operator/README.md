@@ -26,7 +26,7 @@
 
 ## 升级操作脚本说明
 
-### `check_code_status.sh`
+### `compile_packages.sh`
 
 - 运行位置：代码编译节点
 - 运行方式：通常配置为周期性任务执行

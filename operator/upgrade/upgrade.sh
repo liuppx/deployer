@@ -47,9 +47,64 @@ if [[ -z "${notify_from}" ]]; then
     notify_from=$(hostname)
 fi
 
-message_head="通知类型: ${notify_type} 
-通知来源: ${notify_from} 
-通知内容: "
+notify_owner="${notify_from}"
+
+notify_now() {
+    date '+%Y-%m-%d %H:%M'
+}
+
+format_release_notice() {
+    local title=$1
+    local version=$2
+    local scope=$3
+    local content=$4
+    local status=$5
+
+    cat <<EOF
+【发布完成】${title} ${version}
+
+时间：$(notify_now)
+环境：${scope}
+内容：${content}
+状态：${status}
+跟进人：${notify_owner}
+EOF
+}
+
+format_error_notice() {
+    local title=$1
+    local level=$2
+    local status=$3
+    local symptom=$4
+    local impact=$5
+    local judgment=$6
+    local next_step=$7
+
+    cat <<EOF
+【系统异常】${title}
+
+发现时间：$(notify_now)
+异常等级：${level}
+当前状态：${status}
+
+异常现象：
+- ${symptom}
+
+影响范围：
+- 影响用户：使用 ${title%%/*} 的用户
+- 影响功能：${impact}
+- 影响环境：升级流程
+
+当前判断：
+- ${judgment}
+
+下一步动作：
+1. ${next_step}
+2. 检查日志 ${LOGFILE}
+
+负责人：${notify_owner}
+EOF
+}
 
 notify_dingtalk() {
     local need_at=$1
@@ -223,7 +278,14 @@ for module_name in "${MODULES[@]}"; do
 
     if [[ ${#remote_candidates[@]} -eq 0 ]]; then
         log "ERROR! no remote package found for ${module_name}"
-        notify_alert "${message_head} ${module_name}: no remote package found"
+        notify_alert "$(format_error_notice \
+            "${module_name}/${notify_type}" \
+            "P2" \
+            "处理中" \
+            "未找到可用远程安装包" \
+            "无法为 ${module_name} 执行版本升级" \
+            "远程制品目录中缺少该模块的发布包" \
+            "检查制品仓库内容并补齐安装包后重新执行升级")"
         if [[ ${#remote_files[@]} -gt 0 ]]; then
             log "remote file samples:"
             printf '%s\n' "${remote_files[@]:0:50}" | tee -a "$LOGFILE" >/dev/null
@@ -234,7 +296,14 @@ for module_name in "${MODULES[@]}"; do
 
     if ! select_latest_by_fixed_short_commit "$module_name" "${remote_candidates[@]}"; then
         log "ERROR! failed to parse remote package version for ${module_name}"
-        notify_alert "${message_head} ${module_name}: failed to parse remote package version"
+        notify_alert "$(format_error_notice \
+            "${module_name}/${notify_type}" \
+            "P2" \
+            "处理中" \
+            "远程安装包版本解析失败" \
+            "无法判断 ${module_name} 的目标升级版本" \
+            "远程安装包命名不符合约定格式" \
+            "检查远程文件命名规则后重新执行升级")"
         overall_status=1
         continue
     fi
@@ -251,14 +320,26 @@ for module_name in "${MODULES[@]}"; do
         log "current version: ${current_version}"
     else
         log "ERROR! current version directory not found in ${deploy_root} for ${module_name}"
-        notify_alert "${message_head} ${module_name}: current version directory not found in ${deploy_root}"
+        notify_alert "$(format_error_notice \
+            "${module_name}/${notify_type}" \
+            "P2" \
+            "处理中" \
+            "本地当前版本目录不存在：${deploy_root}" \
+            "无法识别 ${module_name} 当前运行版本" \
+            "部署目录缺失或目录命名不符合约定" \
+            "检查部署目录结构后重新执行升级")"
         overall_status=1
         continue
     fi
 
     if ! version_gt "$target_version" "$current_version"; then
         log "no upgrade needed for ${module_name}, current version ${current_version} is up to date"
-        notify_info "${message_head} ${module_name}: no upgrade needed, current version ${current_version} is up to date"
+        notify_info "$(format_release_notice \
+            "${module_name}/升级检查" \
+            "v${current_version}" \
+            "生产环境" \
+            "远程版本 v${target_version} 与当前版本一致，无需升级" \
+            "无需升级，当前版本已是最新")"
         continue
     fi
 
@@ -266,7 +347,14 @@ for module_name in "${MODULES[@]}"; do
 
     if ! bash "$transfer_script" download "$target_filename" >> "$LOGFILE" 2>&1; then
         log "ERROR! failed to download package: ${target_filename}"
-        notify_alert "${message_head} ${module_name}: failed to download package ${target_filename}"
+        notify_alert "$(format_error_notice \
+            "${module_name}/${notify_type}" \
+            "P2" \
+            "处理中" \
+            "安装包下载失败：${target_filename}" \
+            "升级流程中断，目标版本无法落盘" \
+            "制品仓库访问异常或下载流程失败" \
+            "检查网络、凭据和下载脚本后重试升级")"
         overall_status=1
         continue
     fi
@@ -274,13 +362,27 @@ for module_name in "${MODULES[@]}"; do
     package_file="${package_root}/${target_filename}"
     if [[ ! -f "$package_file" ]]; then
         log "ERROR! downloaded package is missing: ${package_file}"
-        notify_alert "${message_head} ${module_name}: downloaded package is missing ${target_filename}"
+        notify_alert "$(format_error_notice \
+            "${module_name}/${notify_type}" \
+            "P2" \
+            "处理中" \
+            "下载完成后未找到安装包文件：${target_filename}" \
+            "升级流程无法继续解压安装包" \
+            "下载结果未落到预期目录或文件被清理" \
+            "检查制品目录和下载脚本输出后重试升级")"
         overall_status=1
         continue
     fi
 
     if ! ensure_extracted_dir "$package_file" "$deploy_root" "$target_dir_name"; then
-        notify_alert "${message_head} ${module_name}: failed to extract package ${target_filename}"
+        notify_alert "$(format_error_notice \
+            "${module_name}/${notify_type}" \
+            "P2" \
+            "处理中" \
+            "安装包解压失败：${target_filename}" \
+            "目标版本目录未能完成准备" \
+            "安装包内容异常或解压流程失败" \
+            "检查安装包完整性和磁盘空间后重新执行升级")"
         overall_status=1
         continue
     fi
@@ -289,20 +391,39 @@ for module_name in "${MODULES[@]}"; do
     upgrade_script="${script_dir}/upgrade_${module_name}.sh"
     if [[ ! -f "$upgrade_script" ]]; then
         log "ERROR! upgrade script is missing: ${upgrade_script}"
-        notify_alert "${message_head} ${module_name}: upgrade script is missing ${upgrade_script}"
+        notify_alert "$(format_error_notice \
+            "${module_name}/${notify_type}" \
+            "P2" \
+            "处理中" \
+            "缺少模块升级脚本：${upgrade_script}" \
+            "无法执行 ${module_name} 的版本切换" \
+            "升级脚本未部署或路径配置错误" \
+            "补齐升级脚本后重新执行升级")"
         overall_status=1
         continue
     fi
 
     if ! bash "$upgrade_script" "$current_version" "$target_version" >> "$LOGFILE" 2>&1; then
         log "ERROR! upgrade script failed for ${module_name}"
-        notify_alert "${message_head} ${module_name}: upgrade script failed"
+        notify_alert "$(format_error_notice \
+            "${module_name}/${notify_type}" \
+            "P1" \
+            "处理中" \
+            "模块升级脚本执行失败" \
+            "${module_name} 未完成从 v${current_version} 到 v${target_version} 的升级" \
+            "升级步骤在模块脚本内部失败" \
+            "检查模块升级脚本日志并修复后重新执行升级")"
         overall_status=1
         continue
     fi
 
     log "upgrade finished for ${module_name}: ${current_version} -> ${target_version}"
-    notify_info "${message_head} ${module_name} upgrade finished: ${current_version} -> ${target_version}"
+    notify_info "$(format_release_notice \
+        "${module_name}/服务升级" \
+        "v${target_version}" \
+        "生产环境" \
+        "已完成版本升级：v${current_version} -> v${target_version}" \
+        "已发布，验证通过")"
 done
 
 log "\nupgrade done. [$(date)]"
