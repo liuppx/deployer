@@ -7,6 +7,11 @@ shopt -s nullglob
 script_dir=$(cd "$(dirname "$0")" || exit 1; pwd)
 # shellcheck disable=SC1091
 source "${script_dir}/common.sh"
+feishu_common_sh="${script_dir}/../feishu-notify/common.sh"
+if [[ -f "$feishu_common_sh" ]]; then
+    # shellcheck disable=SC1090
+    source "$feishu_common_sh"
+fi
 
 init_log_file "upgrade.log"
 
@@ -18,8 +23,9 @@ transfer_script="${script_dir}/transfer_packages.sh"
 dingtalk_script="${script_dir}/../dingtalk-notify/dingtalk_reminder.py"
 dingtalk_scene="upgrade_service"
 dingtalk_force_at="True"
+feishu_scene="upgrade_service"
 overall_status=0
-notify_type="version change"
+notify_type="版本升级"
 
 if [[ -f "$env_file" ]]; then
     # shellcheck disable=SC1090
@@ -41,9 +47,9 @@ if [[ -z "${notify_from}" ]]; then
     notify_from=$(hostname)
 fi
 
-message_head="NOTIFY_TYPE: ${notify_type} 
-NOTIFY_FROM: ${notify_from} 
-NOTIFY_CONTENT: "
+message_head="通知类型: ${notify_type} 
+通知来源: ${notify_from} 
+通知内容: "
 
 notify_dingtalk() {
     local need_at=$1
@@ -59,14 +65,34 @@ notify_dingtalk() {
     fi
 }
 
+notify_feishu() {
+    local message=$1
+
+    if ! declare -F send_feishu_message >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if ! send_feishu_message "$feishu_scene" "$message" >> "$LOGFILE" 2>&1; then
+        log "WARN! failed to send feishu notification"
+    fi
+}
+
+notify_message() {
+    local need_at=$1
+    local message=$2
+
+    notify_dingtalk "$need_at" "$message"
+    notify_feishu "$message"
+}
+
 notify_info() {
     local message=$1
-    notify_dingtalk "$dingtalk_need_at" "$message"
+    notify_message "$dingtalk_need_at" "$message"
 }
 
 notify_alert() {
     local message=$1
-    notify_dingtalk "$dingtalk_force_at" "$message"
+    notify_message "$dingtalk_force_at" "$message"
 }
 
 if [[ $# -ne 0 ]]; then

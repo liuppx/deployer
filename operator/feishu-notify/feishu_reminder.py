@@ -11,54 +11,67 @@ from pathlib import Path
 
 import requests
 
-ENV_FILES = [
-    Path(__file__).resolve().parent / ".env",
-    Path(__file__).resolve().parent / "release_notes.env",
-]
+ENV_FILE = Path(__file__).resolve().parent / ".env"
+SUPPORTED_SCENES = {"create_package", "upgrade_service", "monitor_service", "release_notes"}
 DEFAULT_CHUNK_SIZE = 3000
 
 
-def load_env_files():
-    for env_path in ENV_FILES:
-        if not env_path.exists():
+def load_env_file(env_path: Path):
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
             continue
 
-        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
-            line = raw_line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
 
-            key, value = line.split("=", 1)
-            key = key.strip()
-            value = value.strip()
+        if (value.startswith('"') and value.endswith('"')) or (
+            value.startswith("'") and value.endswith("'")
+        ):
+            value = value[1:-1]
 
-            if (value.startswith('"') and value.endswith('"')) or (
-                value.startswith("'") and value.endswith("'")
-            ):
-                value = value[1:-1]
-
-            os.environ.setdefault(key, value)
+        os.environ.setdefault(key, value)
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="发送 release notes 到飞书机器人")
+    parser = argparse.ArgumentParser(description="send message to feishu ")
+    parser.add_argument("scene", nargs="?")
+    parser.add_argument("positional_message", nargs="?")
     parser.add_argument("--webhook", dest="webhook")
     parser.add_argument("--secret", dest="secret")
-    parser.add_argument("--module", dest="module", required=True)
+    parser.add_argument("--prefix", dest="prefix")
     parser.add_argument("--file", dest="file_path")
     parser.add_argument("--message", dest="message")
-    parser.add_argument("--prefix", dest="prefix")
     parser.add_argument("--chunk-size", dest="chunk_size", type=int, default=DEFAULT_CHUNK_SIZE)
     return parser.parse_args()
 
 
 def get_message(args):
     if args.message:
-        return args.message
+        return args.message.strip()
     if args.file_path:
         return Path(args.file_path).read_text(encoding="utf-8").strip()
-    print("必须提供 --message 或 --file", file=sys.stderr)
+    if args.positional_message:
+        return args.positional_message.strip()
+    print("必须提供消息内容", file=sys.stderr)
     sys.exit(1)
+
+
+def get_scene_config(scene: str):
+    scene_upper = scene.upper()
+    webhook = os.getenv(f"{scene_upper}_WEBHOOK_URL", "")
+    secret = os.getenv(f"{scene_upper}_SECRET", "")
+    prefix = os.getenv(f"{scene_upper}_PREFIX", "")
+
+    if not webhook:
+        print(f"场景配置缺失: {scene}，请在 .env 中配置 {scene_upper}_WEBHOOK_URL", file=sys.stderr)
+        sys.exit(1)
+
+    return webhook, secret, prefix
 
 
 def gen_sign(secret: str, timestamp: str) -> str:
@@ -128,20 +141,35 @@ def send_message(webhook: str, secret: str, text: str):
 
 
 def main():
-    load_env_files()
+    load_env_file(ENV_FILE)
     args = parse_args()
 
-    webhook = args.webhook or os.getenv("FEISHU_WEBHOOK_URL")
-    secret = args.secret if args.secret is not None else os.getenv("FEISHU_SECRET", "")
-    prefix = args.prefix if args.prefix is not None else os.getenv("FEISHU_MESSAGE_PREFIX", "[变更通知]")
+    webhook = args.webhook
+    secret = args.secret if args.secret is not None else ""
+    prefix = args.prefix if args.prefix is not None else ""
+
+    if args.scene:
+        if args.scene not in SUPPORTED_SCENES:
+            print(
+                "参数错误，暂不支持此场景，仅支持: create_package, upgrade_service, monitor_service, release_notes",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if not webhook:
+            webhook, scene_secret, scene_prefix = get_scene_config(args.scene)
+            if args.secret is None:
+                secret = scene_secret
+            if args.prefix is None:
+                prefix = scene_prefix
 
     if not webhook:
-        print("缺少 FEISHU_WEBHOOK_URL 或 --webhook", file=sys.stderr)
+        print("缺少 webhook 配置，请传入场景或使用 --webhook", file=sys.stderr)
         sys.exit(1)
 
     message = get_message(args)
-    full_message = f"{prefix} {args.module}\n\n{message}".strip()
-    chunks = chunk_text(full_message, max(500, args.chunk_size))
+    if prefix:
+        message = f"{prefix}\n\n{message}".strip()
+    chunks = chunk_text(message, max(500, args.chunk_size))
 
     for index, chunk in enumerate(chunks, start=1):
         content = chunk
@@ -149,7 +177,7 @@ def main():
             content = f"{chunk}\n\n({index}/{len(chunks)})"
         send_message(webhook, secret, content)
 
-    print(f"飞书消息发送成功: module={args.module}, chunks={len(chunks)}")
+    print(f"send message to feishu successful: scene={args.scene or 'custom'}, chunks={len(chunks)}")
 
 
 if __name__ == "__main__":

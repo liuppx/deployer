@@ -2,15 +2,17 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+project_root="$(cd "$script_dir/.." && pwd)"
+notify_common_sh="$project_root/feishu-notify/common.sh"
 # 固定配置（按当前发布流程约定）
 REPO_BASE="/root/code"
 MODULES_CONF="$script_dir/modules.conf"
 TAG_GLOB="v[0-9]*.[0-9]*.[0-9]*"
 CODEX_BIN="${RELEASE_NOTES_CODEX_BIN:-codex}"
-ARCHIVE_DIR="/opt/packages"
+ARCHIVE_DIR="/opt/package"
 KEEP_RAW_INPUT="false"
 DEFAULT_REMOTE="origin"
-FEISHU_SENDER="$script_dir/send_feishu_robot_message.py"
+NOTIFY_TYPE='发布通知'
 
 load_env_file() {
   local env_file="$1"
@@ -29,8 +31,8 @@ authoring_note() {
 usage() {
   cat <<EOF
 用法:
-  ./scripts/release_notes.sh
-  ./scripts/release_notes.sh --module <模块名>
+  ./release_notes.sh
+  ./release_notes.sh --module <模块名>
 
 说明:
   1. 默认从 $MODULES_CONF 读取模块列表（每行一个模块，支持 # 注释）。
@@ -52,12 +54,34 @@ fail() {
 
 load_runtime_config() {
   load_env_file "$script_dir/.env"
-  load_env_file "$script_dir/release_notes.env"
+  if [[ -f "$notify_common_sh" ]]; then
+    # shellcheck disable=SC1090
+    source "$notify_common_sh"
+    feishu_notify_load_config
+  fi
 }
 
 warn() {
   printf 'Warn: %s
 ' "$*" >&2
+}
+
+notify_release_notes_feishu() {
+  local content_file="$2"
+  local message
+
+  [[ -f "$content_file" ]] || {
+    echo "cannot find Change Summary Notes：$content_file" >&2
+    return 1
+  }
+
+  if ! declare -F send_feishu_message >/dev/null 2>&1; then
+    echo "cannot find send_feishu_message function" >&2
+    return 1
+  fi
+
+  message="$(cat "$content_file")"
+  send_feishu_message "release_notes" "$message"
 }
 
 trim() {
@@ -161,7 +185,7 @@ build_raw_payload() {
     printf "- @%s (%s 次提交)\n", name, count
   }')"
   if [[ -z "$contributors_md" ]]; then
-    contributors_md="- 无"
+    contributors_md="- none"
   fi
 
   commit_list="$(git -C "$repo_dir" log --reverse --no-merges --format='- `%h` | %ad | %an | %s' --date=short "$range")"
@@ -176,48 +200,42 @@ build_raw_payload() {
   fi
 
   raw_report=""
-  raw_report="${raw_report}# 版本区间原始变更数据"$'
+  raw_report="${raw_report}# Raw data"$'
 
 '
-  raw_report="${raw_report}> 模块：\`${module_name}\`"$'
+  raw_report="${raw_report}> Module Name：\`${module_name}\`"$'
 '
-  raw_report="${raw_report}> 仓库：\`${repo_dir}\`"$'
+  raw_report="${raw_report}> repository：\`${repo_dir}\`"$'
 '
-  raw_report="${raw_report}> 版本范围：\`${old_ref}\` -> \`${new_ref}\`"$'
+  raw_report="${raw_report}> Current Version：\`${new_ref}\`"$'
 '
-  raw_report="${raw_report}> 提交范围：\`${range}\`"$'
-
-'
-
-  raw_report="${raw_report}## 统计信息"$'
-'
-  raw_report="${raw_report}- 提交总数：${commit_total}"$'
-'
-  raw_report="${raw_report}- 变更文件数：${files_changed}"$'
-'
-  raw_report="${raw_report}- 代码行数变化：+${insertions} / -${deletions}"$'
+  raw_report="${raw_report}> Submit Range：\`${range}\`"$'
 
 '
 
-  raw_report="${raw_report}## 贡献者列表"$'
+  raw_report="${raw_report}## Statistics"$'
 '
-  raw_report="${raw_report}${contributors_md}"$'
+  raw_report="${raw_report}- Commits：${commit_total}"$'
+'
+  raw_report="${raw_report}- Files Changed：${files_changed}"$'
+'
+  raw_report="${raw_report}- Lines of code changes：+${insertions} / -${deletions}"$'
 
 '
 
-  raw_report="${raw_report}## 提交列表（不含 merge）"$'
+  raw_report="${raw_report}## Commit list (excluding merges)"$'
 '
   raw_report="${raw_report}${commit_list}"$'
 
 '
 
-  raw_report="${raw_report}## 提交列表（含 merge）"$'
+  raw_report="${raw_report}## Commit list (including merges)"$'
 '
   raw_report="${raw_report}${commit_list_all}"$'
 
 '
 
-  raw_report="${raw_report}## 变更文件（name-status）"$'
+  raw_report="${raw_report}## Files changed（name-status）"$'
 '
   raw_report="${raw_report}${changed_files}"$'
 '
@@ -248,35 +266,46 @@ check_codex_requirements() {
   fail "Codex CLI 不兼容：需要支持 'codex exec -C -o' 或旧版 '--input/--output' 参数"
 }
 
+ensure_codex_requirements_checked() {
+  if [[ "${codex_requirements_checked:-false}" == "true" ]]; then
+    return 0
+  fi
+
+  check_codex_requirements
+  codex_requirements_checked="true"
+}
+
 run_codex() {
   local repo_dir="$1"
   local raw_file="$2"
   local final_file="$3"
+  local notes_heading="$4"
   local raw_payload codex_prompt codex_log_file exec_supported="false" legacy_supported="false"
 
   raw_payload="$(cat "$raw_file")"
 
   codex_prompt="$(cat <<EOF
-你现在要生成模块发布说明。下面是原始变更数据：
+生成模块发布说明,下面是原始变更数据：
 <raw_release_data>
 $raw_payload
 </raw_release_data>
 
 请输出中文 Markdown，要求：
-1. 标题：## 版本变更摘要（$old_ref → $new_ref）
-2. 小节顺序固定：
-   - 新增
-   - 体验
-   - 性能
-   - 安全
-3. 每个小节使用 1、2、3 编号；无内容写“无”。
-4. 语言简洁，不要照抄英文 commit 原文。
-5. 不要包含以下信息：
+1. 标题：## $notes_heading
+2. 发布时间：（使用linux的date命令获取即可）
+3. 小节顺序固定：
+   - 新增功能
+   - 体验优化
+   - 性能提升
+   - 安全加固
+4. 每个小节使用 1、2、3 编号；无内容写“无”。
+5. 语言简洁，不要照抄英文 commit 原文。
+6. 不要包含以下信息：
    - 提交总数
    - 变更文件数
    - 代码行数变化
    - 贡献者列表
-6. 只输出最终 Markdown 正文，不要解释过程。
+7. 只输出最终 Markdown 正文，不要解释过程。
 EOF
 )"
 
@@ -314,21 +343,24 @@ EOF
 
 archive_has_range() {
   local dst_file="$1"
-  local heading="$2"
+  local notify_type="$2"
+  local version="$3"
+  local pattern="【${notify_type}】.*${version}"
 
   [[ -f "$dst_file" ]] || return 1
-  grep -Fqx "$heading" "$dst_file"
+  grep -Eq "$pattern" "$dst_file"
 }
 
 append_to_archive() {
   local src_file="$1"
   local dst_file="$2"
   local heading="$3"
+  local notify_type="$4"
+  local version="$5"
 
   mkdir -p "$(dirname "$dst_file")" || return 1
-  if archive_has_range "$dst_file" "$heading"; then
-    printf '归档已存在相同版本范围，跳过追加：%s
-' "$heading"
+  if archive_has_range "$dst_file" "$notify_type" "$version"; then
+    printf '归档已存在相同通知类型和版本号，跳过追加：[%s] %s\n' "$notify_type" "$version"
     return 0
   fi
   if [[ -f "$dst_file" && -s "$dst_file" ]]; then
@@ -344,18 +376,6 @@ append_to_archive() {
     cat "$src_file" > "$dst_file" || return 1
   fi
   return 0
-}
-
-send_to_feishu() {
-  local module_name="$1"
-  local final_file="$2"
-
-  [[ -n "${FEISHU_WEBHOOK_URL:-}" ]] || return 0
-  [[ -f "$FEISHU_SENDER" ]] || fail "未找到飞书发送脚本：$FEISHU_SENDER"
-
-  python3 "$FEISHU_SENDER" \
-    --module "$module_name" \
-    --file "$final_file"
 }
 
 modules=()
@@ -388,9 +408,9 @@ else
 fi
 
 [[ "${#modules[@]}" -gt 0 ]] || fail "没有可处理的模块。"
-check_codex_requirements
 
 failed_count=0
+codex_requirements_checked="false"
 for module_name in "${modules[@]}"; do
   repo_dir="$REPO_BASE/$module_name"
   raw_tmp_file="/tmp/release_notes_${module_name}.raw.md"
@@ -412,6 +432,12 @@ for module_name in "${modules[@]}"; do
     continue
   fi
 
+  summary_heading="【$NOTIFY_TYPE】版本发布变更摘要[$module_name : $new_ref]"
+  if archive_has_range "$archive_file" "$NOTIFY_TYPE" "$new_ref"; then
+    printf '模块 %s 的概要信息已存在，跳过重新生成：[%s] %s\n' "$module_name" "$NOTIFY_TYPE" "$new_ref"
+    continue
+  fi
+
   range="${old_ref}..${new_ref}"
   raw_report=""
   if ! build_raw_payload "$repo_dir" "$range"; then
@@ -421,23 +447,26 @@ for module_name in "${modules[@]}"; do
   fi
 
   printf '%s' "$raw_report" > "$raw_tmp_file"
-  if ! run_codex "$repo_dir" "$raw_tmp_file" "$final_tmp_file"; then
+  ensure_codex_requirements_checked
+  if ! run_codex "$repo_dir" "$raw_tmp_file" "$final_tmp_file" "$summary_heading"; then
     warn "模块 $module_name：Codex 生成失败"
     failed_count=$((failed_count + 1))
     continue
   fi
 
-  summary_heading="## 版本变更摘要（$old_ref → $new_ref）"
-  if ! append_to_archive "$final_tmp_file" "$archive_file" "$summary_heading"; then
+ 
+  if ! append_to_archive "$final_tmp_file" "$archive_file" "$summary_heading" "$NOTIFY_TYPE" "$new_ref"; then
     warn "模块 $module_name：追加到归档失败（$archive_file）"
     failed_count=$((failed_count + 1))
     continue
   fi
 
-  if ! send_to_feishu "$module_name" "$final_tmp_file"; then
-    warn "模块 $module_name：飞书推送失败"
-    failed_count=$((failed_count + 1))
-    continue
+  if declare -F notify_release_notes_feishu >/dev/null 2>&1; then
+    if ! notify_release_notes_feishu "$module_name" "$final_tmp_file"; then
+      warn "模块 $module_name：飞书推送失败"
+      failed_count=$((failed_count + 1))
+      continue
+    fi
   fi
 
   if [[ "$KEEP_RAW_INPUT" != "true" ]]; then
