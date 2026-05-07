@@ -84,13 +84,13 @@ format_release_notice() {
     local status=$5
 
     cat <<EOF
-【发布完成】${title} ${version}
+【构建完成】${title} ${version}
 
 时间：$(notify_now)
 环境：${scope}
 内容：${content}
 状态：${status}
-跟进人：${notify_owner}
+跟进人：
 EOF
 }
 
@@ -151,9 +151,9 @@ upload_with_retry() {
             notify_message "$dingtalk_need_at" "$(format_release_notice \
                 "${module_name}/构建产物" \
                 "${version}" \
-                "制品仓库" \
+                "编译节点" \
                 "已完成产物上传：${filename}" \
-                "已发布，验证通过")"
+                "已构建，上传完毕")"
             return 0
         fi
         log "upload failed on attempt ${attempt}/3: ${filename}"

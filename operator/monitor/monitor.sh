@@ -92,7 +92,7 @@ format_error_notice() {
     local next_step=$7
 
     cat <<EOF
-【系统异常】${title}
+【异常通知】${title}
 
 发现时间：$(notify_now)
 异常等级：${level}
@@ -104,16 +104,15 @@ format_error_notice() {
 影响范围：
 - 影响用户：使用 ${title%%/*} 的用户
 - 影响功能：${impact}
-- 影响环境：日志监控
+- 影响环境：${notify_owner}
 
 当前判断：
 - ${judgment}
 
 下一步动作：
 1. ${next_step}
-2. 检查日志 ${LOGFILE}
 
-负责人：${notify_owner}
+负责人：
 EOF
 }
 

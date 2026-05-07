@@ -71,6 +71,22 @@ format_release_notice() {
 EOF
 }
 
+format_upgrade_complete_notice() {
+    local title=$1
+    local version=$2
+    local content=$3
+
+    cat <<EOF
+【升级完成】${title} ${version}
+
+时间：$(notify_now)
+环境：${notify_owner}
+内容：${content}
+状态：已升级，待验证确认
+跟进人：
+EOF
+}
+
 format_error_notice() {
     local title=$1
     local level=$2
@@ -418,12 +434,10 @@ for module_name in "${MODULES[@]}"; do
     fi
 
     log "upgrade finished for ${module_name}: ${current_version} -> ${target_version}"
-    notify_info "$(format_release_notice \
+    notify_info "$(format_upgrade_complete_notice \
         "${module_name}/服务升级" \
         "v${target_version}" \
-        "生产环境" \
-        "已完成版本升级：v${current_version} -> v${target_version}" \
-        "已发布，验证通过")"
+        "已完成版本升级：v${current_version} -> v${target_version}")"
 done
 
 log "\nupgrade done. [$(date)]"
