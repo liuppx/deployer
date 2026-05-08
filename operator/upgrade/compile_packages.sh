@@ -40,6 +40,8 @@ fi
 # True: read *_RECEIVER from .env and @userIds; False: no @
 dingtalk_need_at="${DINGTALK_NEED_AT:-False}"
 notify_from="${NOTIFY_FROM:-}"
+notify_dingtalk_enabled="${NOTIFY_DINGDING:-False}"
+notify_feishu_enabled="${NOTIFY_FEISHU:-False}"
 
 ensure_go_in_path() {
     if command -v go >/dev/null 2>&1; then
@@ -193,8 +195,17 @@ notify_message() {
     local need_at=$1
     local message=$2
 
-    notify_dingtalk "$need_at" "$message"
-    notify_feishu "$message"
+    case "${notify_dingtalk_enabled}" in
+        True|true)
+            notify_dingtalk "$need_at" "$message"
+            ;;
+    esac
+
+    case "${notify_feishu_enabled}" in
+        True|true)
+            notify_feishu "$message"
+            ;;
+    esac
 }
 
 if [[ $# -ne 0 ]]; then

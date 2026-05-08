@@ -16,6 +16,8 @@ NOTIFY_TYPE='发布通知'
 NOTIFY_SCOPE='生产环境'
 notify_from=""
 notify_owner=""
+notify_dingtalk_enabled="False"
+notify_feishu_enabled="False"
 
 load_env_file() {
   local env_file="$1"
@@ -58,6 +60,8 @@ fail() {
 load_runtime_config() {
   load_env_file "$script_dir/.env"
   notify_from="${NOTIFY_FROM:-}"
+  notify_dingtalk_enabled="${NOTIFY_DINGDING:-False}"
+  notify_feishu_enabled="${NOTIFY_FEISHU:-False}"
   if [[ -z "$notify_from" ]]; then
     notify_from="$(hostname)"
   fi
@@ -487,13 +491,17 @@ for module_name in "${modules[@]}"; do
     continue
   fi
 
-  if declare -F notify_release_notes_feishu >/dev/null 2>&1; then
-    if ! notify_release_notes_feishu "$module_name" "$final_tmp_file"; then
-      warn "模块 $module_name：飞书推送失败"
-      failed_count=$((failed_count + 1))
-      continue
-    fi
-  fi
+  case "${notify_feishu_enabled}" in
+    True|true)
+      if declare -F notify_release_notes_feishu >/dev/null 2>&1; then
+        if ! notify_release_notes_feishu "$module_name" "$final_tmp_file"; then
+          warn "模块 $module_name：飞书推送失败"
+          failed_count=$((failed_count + 1))
+          continue
+        fi
+      fi
+      ;;
+  esac
 
   if [[ "$KEEP_RAW_INPUT" != "true" ]]; then
     rm -f "$raw_tmp_file"
