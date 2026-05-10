@@ -33,7 +33,9 @@ def load_env_file(env_path: Path):
         ):
             value = value[1:-1]
 
-        os.environ.setdefault(key, value)
+        # Keep externally injected non-empty values, but allow .env to fill empty ones.
+        if not os.getenv(key):
+            os.environ[key] = value
 
 
 def get_scene_config(scene: str):
