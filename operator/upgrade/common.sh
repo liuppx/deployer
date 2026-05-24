@@ -3,8 +3,7 @@
 LOGFILE=""
 MODULES=()
 AUTH_ARGS=()
-WEBDAV_BASE_URL=""
-WEBDAV_REMOTE_DIR=""
+WEBDAV_PACKAGE_BASE_URL=""
 WEBDAV_DIR_URL=""
 PACKAGE_VERSION=""
 PACKAGE_COMMIT=""
@@ -86,8 +85,7 @@ load_modules() {
 load_webdav_env() {
     local env_file=$1
 
-    WEBDAV_BASE_URL="https://webdav.yeying.pub"
-    WEBDAV_REMOTE_DIR="public"
+    WEBDAV_PACKAGE_BASE_URL="https://webdav.yeying.pub/dav/personal/public_community/package"
 
     if [[ -f "$env_file" ]]; then
         # shellcheck disable=SC1090
@@ -96,21 +94,21 @@ load_webdav_env() {
         set +a
     fi
 
-    WEBDAV_BASE_URL="${WEBDAV_BASE_URL%/}"
-    WEBDAV_REMOTE_DIR="$(trim "${WEBDAV_REMOTE_DIR:-public}")"
-    WEBDAV_REMOTE_DIR="${WEBDAV_REMOTE_DIR#/}"
-    WEBDAV_REMOTE_DIR="${WEBDAV_REMOTE_DIR%/}"
+    WEBDAV_PACKAGE_BASE_URL="$(trim "${WEBDAV_PACKAGE_BASE_URL:-$WEBDAV_PACKAGE_BASE_URL}")"
+    WEBDAV_PACKAGE_BASE_URL="${WEBDAV_PACKAGE_BASE_URL%/}"
 
-    if [[ -z "${WEBDAV_USERNAME:-}" || -z "${WEBDAV_PASSWORD:-}" ]]; then
-        log "ERROR! set WEBDAV_USERNAME and WEBDAV_PASSWORD in ${env_file}."
+    if [[ -z "${WEBDAV_PACKAGE_AK:-}" || -z "${WEBDAV_PACKAGE_SK:-}" ]]; then
+        log "ERROR! set WEBDAV_PACKAGE_AK and WEBDAV_PACKAGE_SK in ${env_file}."
         return 1
     fi
 
-    AUTH_ARGS=("-u" "${WEBDAV_USERNAME}:${WEBDAV_PASSWORD}")
-    WEBDAV_DIR_URL="$WEBDAV_BASE_URL"
-    if [[ -n "$WEBDAV_REMOTE_DIR" ]]; then
-        WEBDAV_DIR_URL="${WEBDAV_DIR_URL}/${WEBDAV_REMOTE_DIR}"
+    if [[ -z "$WEBDAV_PACKAGE_BASE_URL" ]]; then
+        log "ERROR! set WEBDAV_PACKAGE_BASE_URL in ${env_file}."
+        return 1
     fi
+
+    AUTH_ARGS=("-u" "${WEBDAV_PACKAGE_AK}:${WEBDAV_PACKAGE_SK}")
+    WEBDAV_DIR_URL="$WEBDAV_PACKAGE_BASE_URL"
 }
 
 urlencode_component() {
@@ -217,28 +215,35 @@ for elem in root.iter():
 artifact_info_from_name() {
     local module_name=$1
     local item=${2%/}
-    local base rest version commit major minor patch
+    local base rest version_tag version commit major minor patch prefix
 
     base=$(basename "$item")
     if [[ "$base" == *.tar.gz ]]; then
         base=${base%.tar.gz}
     fi
 
-    if [[ "$base" != "${module_name}-v"* ]]; then
+    if [[ "$base" != "${module_name}-"* ]]; then
         return 1
     fi
 
-    rest=${base#"${module_name}-v"}
-    commit=${rest##*-}
-    version=${rest%-*}
+    commit=${base##*-}
+    rest=${base%-${commit}}
+    rest=${rest%-}
+    version_tag=${rest##*-}
+    prefix=${rest%-${version_tag}}
+    prefix=${prefix%-}
 
-    if [[ "$version" == "$rest" ]]; then
+    if [[ -z "$prefix" || "$prefix" != "${module_name}"* ]]; then
         return 1
     fi
+    if [[ ! "$version_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        return 1
+    fi
+    version=${version_tag#v}
     if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         return 1
     fi
-    if [[ ! "$commit" =~ ^[0-9A-Za-z]+$ ]]; then
+    if [[ ! "$commit" =~ ^[0-9A-Za-z]{7}$ ]]; then
         return 1
     fi
 
@@ -301,46 +306,7 @@ select_latest_named_item() {
 select_latest_by_fixed_short_commit() {
     local module_name=$1
     shift
-    local candidates=("$@")
-    local item name stem rest version commit
-    local max_key="" max_name="" max_version="" max_commit="" max_stem=""
-    local version_key=""
-
-    for item in "${candidates[@]}"; do
-        name=$(basename "$item")
-        stem=${name%.tar.gz}
-
-        if [[ "$stem" != "${module_name}-v"* ]]; then
-            continue
-        fi
-
-        rest=${stem#"${module_name}-v"}
-        commit=${rest##*-}
-        version=${rest%-*}
-
-        # Parse from right side with fixed short commit length (7).
-        if [[ "${#commit}" -ne 7 || ! "$commit" =~ ^[0-9A-Za-z]{7}$ ]]; then
-            continue
-        fi
-        if [[ "$version" == "$rest" || ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            continue
-        fi
-
-        version_key=$(version_key_from_version "$version") || continue
-        if [[ -z "$max_name" || "$version_key" > "$max_key" || ( "$version_key" == "$max_key" && "$stem" > "$max_stem" ) ]]; then
-            max_key="$version_key"
-            max_name="$name"
-            max_version="$version"
-            max_commit="$commit"
-            max_stem="$stem"
-        fi
-    done
-
-    SELECTED_NAME="$max_name"
-    SELECTED_VERSION="$max_version"
-    SELECTED_COMMIT="$max_commit"
-    SELECTED_VERSION_KEY="$max_key"
-    [[ -n "$SELECTED_NAME" ]]
+    select_latest_named_item "$module_name" "$@"
 }
 
 archive_top_dir() {

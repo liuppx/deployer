@@ -13,7 +13,6 @@ ARCHIVE_DIR="/opt/package"
 KEEP_RAW_INPUT="false"
 DEFAULT_REMOTE="origin"
 NOTIFY_TYPE='发布通知'
-NOTIFY_SCOPE='生产环境'
 notify_from=""
 notify_owner=""
 notify_dingtalk_enabled="False"
@@ -308,7 +307,6 @@ $raw_payload
    ## $notes_title
    发布时间：YYYY-MM-DD HH:mm
    发布版本：$release_version
-   发布范围：$NOTIFY_SCOPE
 
    本次变更：
    1. 新增功能：...

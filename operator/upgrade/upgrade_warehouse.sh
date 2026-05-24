@@ -24,8 +24,8 @@ resolve_version_dir() {
     local candidates=()
     local dir
 
-    for dir in "${deploy_root}/${module_name}-v${version}-"*; do
-        if [[ -d "$dir" ]]; then
+    for dir in "${deploy_root}/${module_name}-"*; do
+        if [[ -d "$dir" ]] && artifact_info_from_name "$module_name" "$(basename "$dir")" && [[ "$PACKAGE_VERSION" == "$version" ]]; then
             candidates+=("$(basename "$dir")")
         fi
     done

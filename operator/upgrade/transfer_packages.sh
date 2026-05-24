@@ -21,15 +21,13 @@ usage() {
     log "Notes:"
     log "  - local directory is fixed to ${package_root}"
     log "  - auth is read from ${env_file}"
-    log "  - remote dir: WEBDAV_BASE_URL(+optional WEBDAV_PREFIX)+WEBDAV_REMOTE_DIR"
+    log "  - remote dir: WEBDAV_PACKAGE_BASE_URL"
 }
 
 load_webdav_config() {
-    local base_url prefix remote_dir
+    local base_url
 
-    base_url="https://webdav.yeying.pub/dav/personal/"
-    prefix=""
-    remote_dir="public"
+    base_url="https://webdav.yeying.pub/dav/personal/public_community/package"
 
     if [[ ! -f "$env_file" ]]; then
         log "ERROR! env file is missing: ${env_file}"
@@ -41,32 +39,22 @@ load_webdav_config() {
     source "$env_file"
     set +a
 
-    if [[ -n "${WEBDAV_TOKEN:-}" ]]; then
-        AUTH_ARGS=(-H "Authorization: Bearer ${WEBDAV_TOKEN}")
-    elif [[ -n "${WEBDAV_USERNAME:-}" && -n "${WEBDAV_PASSWORD:-}" ]]; then
-        AUTH_ARGS=(-u "${WEBDAV_USERNAME}:${WEBDAV_PASSWORD}")
-    else
-        log "ERROR! set WEBDAV_TOKEN or WEBDAV_USERNAME/WEBDAV_PASSWORD in ${env_file}."
+    if [[ -z "${WEBDAV_PACKAGE_AK:-}" || -z "${WEBDAV_PACKAGE_SK:-}" ]]; then
+        log "ERROR! set WEBDAV_PACKAGE_AK and WEBDAV_PACKAGE_SK in ${env_file}."
         return 1
     fi
 
-    base_url=$(trim "${WEBDAV_BASE_URL:-$base_url}")
-    prefix=$(trim "${WEBDAV_PREFIX:-$prefix}")
-    remote_dir=$(trim "${WEBDAV_REMOTE_DIR:-$remote_dir}")
+    base_url=$(trim "${WEBDAV_PACKAGE_BASE_URL:-$base_url}")
 
     base_url="${base_url%/}"
-    prefix="${prefix#/}"
-    prefix="${prefix%/}"
-    remote_dir="${remote_dir#/}"
-    remote_dir="${remote_dir%/}"
 
+    if [[ -z "$base_url" ]]; then
+        log "ERROR! set WEBDAV_PACKAGE_BASE_URL in ${env_file}."
+        return 1
+    fi
+
+    AUTH_ARGS=(-u "${WEBDAV_PACKAGE_AK}:${WEBDAV_PACKAGE_SK}")
     webdav_dir_url="$base_url"
-    if [[ -n "$prefix" ]]; then
-        webdav_dir_url="${webdav_dir_url}/${prefix}"
-    fi
-    if [[ -n "$remote_dir" ]]; then
-        webdav_dir_url="${webdav_dir_url}/${remote_dir}"
-    fi
 }
 
 build_remote_url() {
