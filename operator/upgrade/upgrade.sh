@@ -37,6 +37,7 @@ fi
 # True: read *_RECEIVER from .env and @userIds; False: no @
 dingtalk_need_at="${DINGTALK_NEED_AT:-False}"
 notify_from="${NOTIFY_FROM:-}"
+notify_same_version="${NOTIFY_SAME_VERSION:-False}"
 notify_dingtalk_enabled="${NOTIFY_DINGDING:-False}"
 notify_feishu_enabled="${NOTIFY_FEISHU:-False}"
 
@@ -62,14 +63,18 @@ format_release_notice() {
     local content=$4
     local status=$5
 
+    # Keep positional arguments stable for existing callers; release notices now
+    # always show the operator identity from NOTIFY_FROM/hostname.
+    : "$scope"
+
     cat <<EOF
 【发布完成】${title} ${version}
 
 时间：$(notify_now)
-环境：${scope}
+环境：${notify_from}
 内容：${content}
 状态：${status}
-跟进人：${notify_owner}
+跟进人：
 EOF
 }
 
@@ -177,6 +182,17 @@ notify_alert() {
     notify_message "$dingtalk_force_at" "$message"
 }
 
+notify_same_version_enabled() {
+    case "${notify_same_version}" in
+        True|true)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 if [[ $# -ne 0 ]]; then
     usage
     exit 1
@@ -187,58 +203,42 @@ load_modules "$config_file" || {
     exit 1
 }
 
-select_latest_by_fixed_short_commit() {
+update_active_module_symlink() {
     local module_name=$1
-    shift
-    local candidates=("$@")
-    local item name stem rest version commit
-    local max_key="" max_name="" max_version="" max_commit="" max_stem=""
-    local version_key=""
+    local target_dir=$2
+    local link_path="${deploy_root}/${module_name}"
+    local target_name
 
-    for item in "${candidates[@]}"; do
-        name=$(basename "$item")
-        stem=${name%.tar.gz}
+    target_name=$(basename "$target_dir")
+    if [[ -e "$link_path" && ! -L "$link_path" ]]; then
+        log "ERROR! active link path exists and is not a symlink: ${link_path}"
+        return 1
+    fi
 
-        if [[ "$stem" != "${module_name}-v"* ]]; then
-            continue
-        fi
-
-        rest=${stem#"${module_name}-v"}
-        commit=${rest##*-}
-        version=${rest%-*}
-
-        # Parse from right side with fixed short commit length (7).
-        if [[ "${#commit}" -ne 7 || ! "$commit" =~ ^[0-9A-Za-z]{7}$ ]]; then
-            continue
-        fi
-        if [[ "$version" == "$rest" || ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            continue
-        fi
-
-        version_key=$(version_key_from_version "$version") || continue
-        if [[ -z "$max_name" || "$version_key" > "$max_key" || ( "$version_key" == "$max_key" && "$stem" > "$max_stem" ) ]]; then
-            max_key="$version_key"
-            max_name="$name"
-            max_version="$version"
-            max_commit="$commit"
-            max_stem="$stem"
-        fi
-    done
-
-    SELECTED_NAME="$max_name"
-    SELECTED_VERSION="$max_version"
-    SELECTED_COMMIT="$max_commit"
-    SELECTED_VERSION_KEY="$max_key"
-    [[ -n "$SELECTED_NAME" ]]
+    ln -sfn "$target_name" "$link_path"
 }
 
 find_current_version_from_deploy_dirs() {
     local module_name=$1
     local candidate_dirs=()
-    local dir
+    local dir link_path resolved_path resolved_name
+
+    link_path="${deploy_root}/${module_name}"
+    if [[ -L "$link_path" ]]; then
+        resolved_path=$(readlink -f "$link_path" 2>/dev/null || true)
+        resolved_name=$(basename "${resolved_path:-}")
+        if [[ -n "$resolved_name" ]] && artifact_info_from_name "$module_name" "$resolved_name"; then
+            SELECTED_NAME="$resolved_name"
+            SELECTED_VERSION="$PACKAGE_VERSION"
+            SELECTED_COMMIT="$PACKAGE_COMMIT"
+            SELECTED_VERSION_KEY="$PACKAGE_VERSION_KEY"
+            return 0
+        fi
+        log "WARN! active symlink target is not a valid deployed package for ${module_name}: ${link_path}"
+    fi
 
     for dir in "${deploy_root}/${module_name}-"*; do
-        if [[ -d "$dir" ]]; then
+        if [[ -d "$dir" ]] && artifact_info_from_name "$module_name" "$(basename "$dir")"; then
             candidate_dirs+=("$(basename "$dir")")
         fi
     done
@@ -251,7 +251,7 @@ find_current_version_from_deploy_dirs() {
 }
 
 resolve_webdav_dir_url_from_env() {
-    local base_url prefix remote_dir custom_dir
+    local base_url custom_dir
 
     custom_dir=$(trim "${WEBDAV_DIR_URL:-}")
     if [[ -n "$custom_dir" ]]; then
@@ -259,23 +259,11 @@ resolve_webdav_dir_url_from_env() {
         return 0
     fi
 
-    base_url=$(trim "${WEBDAV_BASE_URL:-https://webdav.yeying.pub/dav/personal/}")
-    prefix=$(trim "${WEBDAV_PREFIX:-}")
-    remote_dir=$(trim "${WEBDAV_REMOTE_DIR:-public}")
+    base_url=$(trim "${WEBDAV_PACKAGE_BASE_URL:-https://webdav.yeying.pub/dav/personal/public_community/package}")
 
     base_url="${base_url%/}"
-    prefix="${prefix#/}"
-    prefix="${prefix%/}"
-    remote_dir="${remote_dir#/}"
-    remote_dir="${remote_dir%/}"
 
     WEBDAV_DIR_URL="$base_url"
-    if [[ -n "$prefix" ]]; then
-        WEBDAV_DIR_URL="${WEBDAV_DIR_URL}/${prefix}"
-    fi
-    if [[ -n "$remote_dir" ]]; then
-        WEBDAV_DIR_URL="${WEBDAV_DIR_URL}/${remote_dir}"
-    fi
 }
 
 if [[ ! -f "$transfer_script" ]]; then
@@ -287,7 +275,7 @@ load_webdav_env "$env_file" || exit 1
 resolve_webdav_dir_url_from_env
 mkdir -p "$package_root" "$deploy_root"
 log "webdav remote dir: ${WEBDAV_DIR_URL}/"
-log "webdav username: ${WEBDAV_USERNAME:-<empty>}"
+log "webdav access key: ${WEBDAV_PACKAGE_AK:-<empty>}"
 
 mapfile -t remote_files < <(webdav_list_files) || exit 1
 log "remote files count: ${#remote_files[@]}"
@@ -361,12 +349,14 @@ for module_name in "${MODULES[@]}"; do
 
     if ! version_gt "$target_version" "$current_version"; then
         log "no upgrade needed for ${module_name}, current version ${current_version} is up to date"
-        notify_info "$(format_release_notice \
-            "${module_name}/升级检查" \
-            "v${current_version}" \
-            "生产环境" \
-            "远程版本 v${target_version} 与当前版本一致，无需升级" \
-            "无需升级，当前版本已是最新")"
+        if notify_same_version_enabled; then
+            notify_info "$(format_release_notice \
+                "${module_name}/升级检查" \
+                "v${current_version}" \
+                "${notify_from}" \
+                "远程版本 v${target_version} 与当前版本一致，无需升级" \
+                "无需升级，当前版本已是最新")"
+        fi
         continue
     fi
 
@@ -444,7 +434,22 @@ for module_name in "${MODULES[@]}"; do
         continue
     fi
 
+    if ! update_active_module_symlink "$module_name" "$EXTRACTED_DIR"; then
+        log "ERROR! failed to update active symlink for ${module_name}"
+        notify_alert "$(format_error_notice \
+            "${module_name}/${notify_type}" \
+            "P1" \
+            "处理中" \
+            "运行目录软链接更新失败：${deploy_root}/${module_name}" \
+            "无法稳定定位 ${module_name} 当前运行版本的配置和日志" \
+            "部署目录存在同名实体目录或软链接更新失败" \
+            "检查 ${deploy_root}/${module_name} 后重新执行升级")"
+        overall_status=1
+        continue
+    fi
+
     log "upgrade finished for ${module_name}: ${current_version} -> ${target_version}"
+    log "active symlink updated: ${deploy_root}/${module_name} -> $(basename "$EXTRACTED_DIR")"
     notify_info "$(format_upgrade_complete_notice \
         "${module_name}/服务升级" \
         "v${target_version}" \
