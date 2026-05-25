@@ -260,7 +260,7 @@ resolve_webdav_dir_url_from_env() {
         return 0
     fi
 
-    base_url=$(trim "${WEBDAV_PACKAGE_BASE_URL:-https://webdav.yeying.pub/dav/personal/public_community/package}")
+    base_url=$(trim "${WEBDAV_PACKAGE_BASE_URL:-}")
 
     base_url="${base_url%/}"
 

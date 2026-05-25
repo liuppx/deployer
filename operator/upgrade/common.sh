@@ -85,8 +85,6 @@ load_modules() {
 load_webdav_env() {
     local env_file=$1
 
-    WEBDAV_PACKAGE_BASE_URL="https://webdav.yeying.pub/dav/personal/public_community/package"
-
     if [[ -f "$env_file" ]]; then
         # shellcheck disable=SC1090
         set -a
@@ -94,7 +92,7 @@ load_webdav_env() {
         set +a
     fi
 
-    WEBDAV_PACKAGE_BASE_URL="$(trim "${WEBDAV_PACKAGE_BASE_URL:-$WEBDAV_PACKAGE_BASE_URL}")"
+    WEBDAV_PACKAGE_BASE_URL="$(trim "${WEBDAV_PACKAGE_BASE_URL:-}")"
     WEBDAV_PACKAGE_BASE_URL="${WEBDAV_PACKAGE_BASE_URL%/}"
 
     if [[ -z "${WEBDAV_PACKAGE_AK:-}" || -z "${WEBDAV_PACKAGE_SK:-}" ]]; then
