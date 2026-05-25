@@ -66,52 +66,37 @@ build_remote_url() {
 
 ensure_remote_dir_recursive() {
     local dir_url=$1
-    local mkcol_targets=()
-    local target status check_status
+    local status check_status
 
-    mapfile -t mkcol_targets < <(python3 - "$dir_url" <<'PY'
-import sys
-from urllib.parse import urlparse, urlunparse
+    check_status=$(curl -sS -o /dev/null -w "%{http_code}" -X PROPFIND -H "Depth: 0" "${AUTH_ARGS[@]}" "$dir_url")
+    case "$check_status" in
+        200|207|301|302|307|308)
+            return 0
+            ;;
+        401|403)
+            log "ERROR! authentication failed while checking remote dir: ${dir_url}"
+            return 1
+            ;;
+    esac
 
-u = urlparse(sys.argv[1])
-path = u.path or "/"
-parts = [p for p in path.split("/") if p]
-
-cur = ""
-for p in parts:
-    cur += "/" + p
-    print(urlunparse((u.scheme, u.netloc, cur + "/", "", "", "")))
-PY
-)
-
-    for target in "${mkcol_targets[@]}"; do
-        status=$(curl -sS -o /dev/null -w "%{http_code}" -X MKCOL "${AUTH_ARGS[@]}" "$target")
-        case "$status" in
-            200|201|204|301|302|307|308|405)
-                ;;
-            401|403)
-                log "ERROR! authentication failed while ensuring remote dir: ${target}"
-                return 1
-                ;;
-            *)
-                # Some servers don't allow MKCOL on route prefixes (e.g. /dav),
-                # but the directory may already exist. Validate with PROPFIND.
-                check_status=$(curl -sS -o /dev/null -w "%{http_code}" -X PROPFIND -H "Depth: 0" "${AUTH_ARGS[@]}" "$target")
-                case "$check_status" in
-                    200|207|301|302|307|308)
-                        ;;
-                    401|403)
-                        log "ERROR! authentication failed while checking remote dir: ${target}"
-                        return 1
-                        ;;
-                    *)
-                        log "ERROR! failed to ensure remote dir ${target}, mkcol=${status}, propfind=${check_status}"
-                        return 1
-                        ;;
-                esac
-                ;;
-        esac
-    done
+    status=$(curl -sS -o /dev/null -w "%{http_code}" -X MKCOL "${AUTH_ARGS[@]}" "$dir_url")
+    case "$status" in
+        200|201|204|301|302|307|308|405)
+            return 0
+            ;;
+        401|403)
+            log "ERROR! authentication failed while ensuring remote dir: ${dir_url}"
+            return 1
+            ;;
+        409)
+            log "ERROR! parent directory is missing for remote dir: ${dir_url}"
+            return 1
+            ;;
+        *)
+            log "ERROR! failed to ensure remote dir ${dir_url}, mkcol=${status}, propfind=${check_status}"
+            return 1
+            ;;
+    esac
 
     return 0
 }
