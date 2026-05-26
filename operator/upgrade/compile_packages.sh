@@ -248,41 +248,58 @@ sync_main_latest() {
     return 0
 }
 
+parse_package_name() {
+    local module_name=$1
+    local package_name=$2
+    local stem prefix version commit
+
+    PARSED_PACKAGE_VERSION=""
+    PARSED_PACKAGE_COMMIT=""
+
+    stem=${package_name%.tar.gz}
+    if [[ "$stem" == "$package_name" || "$stem" != "${module_name}-"* ]]; then
+        return 1
+    fi
+
+    commit=${stem##*-}
+    if [[ "${#commit}" -ne 7 || ! "$commit" =~ ^[0-9A-Za-z]{7}$ ]]; then
+        return 1
+    fi
+
+    prefix=${stem%-${commit}}
+    version=${prefix##*-v}
+    if [[ "$version" == "$prefix" || ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        return 1
+    fi
+
+    PARSED_PACKAGE_VERSION="$version"
+    PARSED_PACKAGE_COMMIT="$commit"
+    return 0
+}
+
 select_latest_local_package() {
     local module_name=$1
     shift
     local candidates=("$@")
-    local item name stem rest version commit
+    local item name version commit
     local max_key="" max_name="" max_version="" max_commit="" max_stem=""
     local version_key=""
 
     for item in "${candidates[@]}"; do
         name=$(basename "$item")
-        stem=${name%.tar.gz}
-
-        if [[ "$stem" != "${module_name}-v"* ]]; then
+        if ! parse_package_name "$module_name" "$name"; then
             continue
         fi
-
-        rest=${stem#"${module_name}-v"}
-        commit=${rest##*-}
-        version=${rest%-*}
-
-        # Use fixed-length short commit to parse from right side.
-        if [[ "${#commit}" -ne 7 || ! "$commit" =~ ^[0-9A-Za-z]{7}$ ]]; then
-            continue
-        fi
-        if [[ "$version" == "$rest" || ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            continue
-        fi
+        version="$PARSED_PACKAGE_VERSION"
+        commit="$PARSED_PACKAGE_COMMIT"
 
         version_key=$(version_key_from_version "$version") || continue
-        if [[ -z "$max_name" || "$version_key" > "$max_key" || ( "$version_key" == "$max_key" && "$stem" > "$max_stem" ) ]]; then
+        if [[ -z "$max_name" || "$version_key" > "$max_key" || ( "$version_key" == "$max_key" && "$name" > "$max_stem" ) ]]; then
             max_key="$version_key"
             max_name="$name"
             max_version="$version"
             max_commit="$commit"
-            max_stem="$stem"
+            max_stem="$name"
         fi
     done
 
@@ -413,9 +430,10 @@ for module_name in "${MODULES[@]}"; do
 
     commit_matched_packages=()
     for package_name in "${output_package_names[@]}"; do
-        package_stem=${package_name%.tar.gz}
-        package_rest=${package_stem#"${module_name}-v"}
-        package_commit=${package_rest##*-}
+        if ! parse_package_name "$module_name" "$package_name"; then
+            continue
+        fi
+        package_commit="$PARSED_PACKAGE_COMMIT"
         if [[ "$package_commit" == "$latest_commit" ]]; then
             commit_matched_packages+=("$package_name")
         fi
