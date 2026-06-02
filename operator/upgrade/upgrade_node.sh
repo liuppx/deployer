@@ -69,6 +69,7 @@ log "target dir: ${target_dir}"
 [[ -f "${current_dir}/scripts/starter.sh" ]] || { log "ERROR! missing script: ${current_dir}/scripts/starter.sh"; exit 1; }
 [[ -f "${target_dir}/scripts/starter.sh" ]] || { log "ERROR! missing script: ${target_dir}/scripts/starter.sh"; exit 1; }
 [[ -f "${current_dir}/config.js" ]] || { log "ERROR! missing config: ${current_dir}/config.js"; exit 1; }
+[[ -f "${target_dir}/.env.template" ]] || { log "ERROR! missing env template: ${target_dir}/.env.template"; exit 1; }
 [[ -e "${current_dir}/run" ]] || { log "ERROR! missing run: ${current_dir}/run"; exit 1; }
 [[ -d "${target_dir}/run" ]] || mkdir -p "${target_dir}/run"
 
@@ -80,6 +81,14 @@ fi
 
 cp -f "${current_dir}/config.js" "${target_dir}/config.js"
 log "copied config: ${current_dir}/config.js -> ${target_dir}/config.js"
+
+if [[ -f "${current_dir}/.env" ]]; then
+    cp -f "${current_dir}/.env" "${target_dir}/.env"
+    log "copied env: ${current_dir}/.env -> ${target_dir}/.env"
+else
+    cp -f "${target_dir}/.env.template" "${target_dir}/.env"
+    log "current env missing, initialized from template: ${target_dir}/.env.template -> ${target_dir}/.env"
+fi
 
 cp -Rf "${current_dir}/run/." "${target_dir}/run/"
 log "copied run: ${current_dir}/run -> ${target_dir}/run"
