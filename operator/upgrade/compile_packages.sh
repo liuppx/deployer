@@ -208,6 +208,38 @@ notify_message() {
     esac
 }
 
+notify_build_failure() {
+    local module_name=$1
+    local symptom=$2
+    local action=$3
+    local next_step=$4
+
+    notify_message "True" "$(format_error_notice \
+        "${module_name}/${notify_type}" \
+        "P2" \
+        "处理中" \
+        "${symptom}" \
+        "新版本产物未完成构建" \
+        "${action}" \
+        "${next_step}")"
+}
+
+notify_release_notes_failure() {
+    local module_name=$1
+    local symptom=$2
+    local action=$3
+    local next_step=$4
+
+    notify_message "True" "$(format_error_notice \
+        "${module_name}/发布通知" \
+        "P2" \
+        "处理中" \
+        "${symptom}" \
+        "release notes 未生成或未更新" \
+        "${action}" \
+        "${next_step}")"
+}
+
 if [[ $# -ne 0 ]]; then
     usage
     exit 1
@@ -400,6 +432,11 @@ for module_name in "${MODULES[@]}"; do
 
     if [[ ! -f "$package_script" ]]; then
         log "ERROR! package script is missing: ${package_script}"
+        notify_build_failure \
+            "$module_name" \
+            "构建脚本缺失：${package_script}" \
+            "模块仓库缺少 scripts/package.sh，无法启动构建流程" \
+            "补齐构建脚本后重新执行打包"
         overall_status=1
         continue
     fi
@@ -411,6 +448,11 @@ for module_name in "${MODULES[@]}"; do
     if ! (cd "$module_dir" && bash scripts/package.sh >> "$LOGFILE" 2>&1); then
         log "ERROR! package script failed for ${module_name}"
         rm -f "$build_state_before"
+        notify_build_failure \
+            "$module_name" \
+            "执行构建脚本失败：scripts/package.sh" \
+            "构建流程已启动，但脚本执行返回非零状态" \
+            "检查模块构建日志并修复后重新打包"
         overall_status=1
         continue
     fi
@@ -419,6 +461,11 @@ for module_name in "${MODULES[@]}"; do
     if [[ ${#output_packages[@]} -eq 0 ]]; then
         log "ERROR! package file not found: ${module_dir}/output/${module_name}-*.tar.gz"
         rm -f "$build_state_before"
+        notify_build_failure \
+            "$module_name" \
+            "构建完成后未找到产物：${module_dir}/output/${module_name}-*.tar.gz" \
+            "构建脚本执行结束，但未生成符合命名规则的压缩包" \
+            "检查 output 目录和产物命名规则后重新打包"
         overall_status=1
         continue
     fi
@@ -442,6 +489,11 @@ for module_name in "${MODULES[@]}"; do
     if [[ ${#commit_matched_packages[@]} -eq 0 ]]; then
         log "ERROR! no output package with latest commit (${latest_commit}) for ${module_name}"
         rm -f "$build_state_before"
+        notify_build_failure \
+            "$module_name" \
+            "构建产物未包含最新提交 ${latest_commit}" \
+            "output 目录中的产物 commit 标识与当前代码不一致" \
+            "检查版本注入逻辑和产物命名后重新打包"
         overall_status=1
         continue
     fi
@@ -449,6 +501,11 @@ for module_name in "${MODULES[@]}"; do
     if ! select_latest_local_package "$module_name" "${commit_matched_packages[@]}"; then
         log "ERROR! failed to find valid output package for ${module_name} with commit ${latest_commit}"
         rm -f "$build_state_before"
+        notify_build_failure \
+            "$module_name" \
+            "无法识别最新提交 ${latest_commit} 对应的有效构建产物" \
+            "产物已生成，但文件名不符合解析规则或版本信息异常" \
+            "检查产物命名格式后重新打包"
         overall_status=1
         continue
     fi
@@ -458,14 +515,29 @@ for module_name in "${MODULES[@]}"; do
     if [[ ! -f "$package_file" ]]; then
         log "ERROR! built package is missing: ${package_file}"
         rm -f "$build_state_before"
+        notify_build_failure \
+            "$module_name" \
+            "构建产物缺失：${package_file}" \
+            "已选中的产物文件不存在，构建结果不完整" \
+            "检查构建脚本清理逻辑和 output 目录后重新打包"
         overall_status=1
         continue
     fi
 
     if [[ ! -f "$release_notes_script" ]]; then
         log "WARN! release notes script is missing: ${release_notes_script}"
+        notify_release_notes_failure \
+            "$module_name" \
+            "release notes 脚本缺失：${release_notes_script}" \
+            "构建产物已生成，但发布通知脚本不存在" \
+            "补齐 release notes 脚本后重新生成发布通知"
     elif ! bash "$release_notes_script" --module "$module_name" >> "$LOGFILE" 2>&1; then
         log "WARN! release notes script failed for ${module_name}"
+        notify_release_notes_failure \
+            "$module_name" \
+            "release notes 生成失败：${module_name}" \
+            "构建产物已生成，但发布通知生成脚本执行失败" \
+            "检查 release notes 日志和模块仓库状态后重试生成"
     else
         log "release notes generated for ${module_name}"
     fi
