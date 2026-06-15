@@ -298,7 +298,7 @@ sync_main_latest() {
         return 1
     fi
 
-    # Keep local workspace on main and fast-forward to origin/main.
+    # Force local workspace to match origin/main for build determinism.
     if git -C "$module_dir" show-ref --verify --quiet refs/heads/main; then
         if ! git -C "$module_dir" checkout main >> "$LOGFILE" 2>&1; then
             log "ERROR! git checkout main failed for ${module_name}"
@@ -311,8 +311,13 @@ sync_main_latest() {
         fi
     fi
 
-    if ! git -C "$module_dir" pull --ff-only origin main >> "$LOGFILE" 2>&1; then
-        log "ERROR! git pull --ff-only origin main failed for ${module_name}"
+    if ! git -C "$module_dir" reset --hard origin/main >> "$LOGFILE" 2>&1; then
+        log "ERROR! git reset --hard origin/main failed for ${module_name}"
+        return 1
+    fi
+
+    if ! git -C "$module_dir" clean -fd >> "$LOGFILE" 2>&1; then
+        log "ERROR! git clean -fd failed for ${module_name}"
         return 1
     fi
 
