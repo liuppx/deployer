@@ -12,14 +12,14 @@
 Project 使用同一目录：
 
 ```sh
-PASSPORT_IDENTITY_TRUST_DIR="$HOME/.config/node"
+IDENTITY_TRUST_DIR="$HOME/.config/node"
 ```
 
 生产环境显式指定固定目录：
 
 ```sh
 PASSPORT_NODE_URL=https://node.yeying.pub \
-PASSPORT_IDENTITY_TRUST_DIR=/opt/data/node \
+IDENTITY_TRUST_DIR=/data/node \
 ./sync-identity-trust.sh
 ```
 
