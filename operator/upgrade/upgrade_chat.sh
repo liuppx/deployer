@@ -101,8 +101,6 @@ fi
 cp -f "${current_dir}/.env" "${target_dir}/.env"
 log "copied env file: ${current_dir}/.env -> ${target_dir}/.env"
 
-copy_backup_config_files "$current_dir" "$target_dir"
-
 log "start target chat: cd ${target_dir} && scripts/starter.sh"
 if ! (cd "$target_dir" && bash scripts/starter.sh >> "$LOGFILE" 2>&1); then
     log "ERROR! failed to start target chat service"

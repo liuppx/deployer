@@ -19,6 +19,9 @@ export PATH="/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 
 init_log_file "check-code-status.log"
 
+lock_file="${COMPILE_PACKAGES_LOCK_FILE:-/tmp/operator-compile-packages.lock}"
+lock_notice_file="${COMPILE_PACKAGES_LOCK_NOTICE_FILE:-${lock_file}.notice}"
+lock_notice_interval="${COMPILE_PACKAGES_LOCK_NOTICE_INTERVAL_SECONDS:-300}"
 config_file="${script_dir}/modules.conf"
 env_file="${script_dir}/.env"
 code_root="/root/code"
@@ -30,6 +33,35 @@ dingtalk_scene="create_package"
 feishu_scene="create_package"
 overall_status=0
 notify_type="版本生成"
+
+acquire_compile_lock() {
+    touch "$lock_file"
+    exec 200<>"$lock_file"
+    if ! flock -n 200; then
+        local now last_notice holder
+
+        now=$(date +%s)
+        last_notice=0
+        holder=$(tr '\n' ' ' < "$lock_file" | sed 's/[[:space:]]*$//' || true)
+        if [[ -f "$lock_notice_file" ]]; then
+            last_notice=$(stat -c "%Y" "$lock_notice_file" 2>/dev/null || echo 0)
+        fi
+
+        if [[ "$lock_notice_interval" =~ ^[0-9]+$ ]] && (( now - last_notice >= lock_notice_interval )); then
+            log "WARN! compile packages task is already running, skip this cycle, lock file: ${lock_file}, holder: ${holder:-unknown}"
+            touch "$lock_notice_file"
+        fi
+
+        exit 0
+    fi
+
+    : > "$lock_file"
+    printf 'pid=%s user=%s started=%s cwd=%s\n' "$$" "$(id -un 2>/dev/null || echo unknown)" "$(date '+%Y-%m-%d %H:%M:%S')" "$(pwd)" >&200
+    rm -f "$lock_notice_file"
+    log "acquired lock: ${lock_file}"
+}
+
+acquire_compile_lock
 
 if [[ -f "$env_file" ]]; then
     # shellcheck disable=SC1090
@@ -189,7 +221,7 @@ upload_with_retry() {
 
     for attempt in 1 2 3; do
         log "upload attempt ${attempt}/3: ${filename}"
-        if bash "$transfer_script" upload "$filename" >> "$LOGFILE" 2>&1; then
+        if bash "$transfer_script" upload "$filename" 200>&- >> "$LOGFILE" 2>&1; then
             log "upload completed: ${filename}"
             if [[ "$notify_success" == "True" ]]; then
                 notify_message "$dingtalk_need_at" "$(format_release_notice \
@@ -251,7 +283,7 @@ notify_dingtalk() {
         return 0
     fi
 
-    if ! python3 "$dingtalk_script" "$dingtalk_scene" "$need_at" "$message" >> "$LOGFILE" 2>&1; then
+    if ! python3 "$dingtalk_script" "$dingtalk_scene" "$need_at" "$message" 200>&- >> "$LOGFILE" 2>&1; then
         log "WARN! failed to send dingtalk notification"
     fi
 }
@@ -293,7 +325,7 @@ notify_feishu_webhook() {
         return 0
     fi
 
-    if ! python3 "$feishu_reminder_script" --webhook "$webhook" --secret "$secret" --prefix "$prefix" --message "$message" >> "$LOGFILE" 2>&1; then
+    if ! python3 "$feishu_reminder_script" --webhook "$webhook" --secret "$secret" --prefix "$prefix" --message "$message" 200>&- >> "$LOGFILE" 2>&1; then
         log "WARN! failed to send feishu notification: ${webhook_var}"
     fi
 }
@@ -369,6 +401,22 @@ notify_release_notes_failure() {
     case "${notify_feishu_enabled}" in
         True|true)
             notify_feishu_webhook "$message" "RELEASE_NOTES_WEBHOOK_URL_FAILURE" "RELEASE_NOTES_SECRET" "RELEASE_NOTES_PREFIX"
+            ;;
+    esac
+}
+
+notify_upload_failure() {
+    local message=$1
+
+    case "${notify_dingtalk_enabled}" in
+        True|true)
+            notify_dingtalk "True" "$message"
+            ;;
+    esac
+
+    case "${notify_feishu_enabled}" in
+        True|true)
+            notify_feishu_webhook "$message" "CREATE_PACKAGE_WEBHOOK_URL_FAILURE" "CREATE_PACKAGE_SECRET" "CREATE_PACKAGE_PREFIX"
             ;;
     esac
 }
@@ -606,7 +654,7 @@ for module_name in "${MODULES[@]}"; do
     capture_output_package_state "$module_name" "$module_dir" "$build_state_before"
 
     log "build package for ${module_name}: ${build_reason}"
-    if ! (cd "$module_dir" && bash scripts/package.sh >> "$LOGFILE" 2>&1); then
+    if ! (cd "$module_dir" && bash scripts/package.sh 200>&- >> "$LOGFILE" 2>&1); then
         log "ERROR! package script failed for ${module_name}"
         rm -f "$build_state_before"
         notify_build_failure \
@@ -695,7 +743,7 @@ for module_name in "${MODULES[@]}"; do
             "release notes 脚本缺失：${release_notes_script}" \
             "构建产物已生成，但发布通知脚本不存在" \
             "补齐 release notes 脚本后重新生成发布通知"
-    elif ! bash "$release_notes_script" --module "$module_name" >> "$LOGFILE" 2>&1; then
+    elif ! bash "$release_notes_script" --module "$module_name" 200>&- >> "$LOGFILE" 2>&1; then
         log "WARN! release notes script failed for ${module_name}"
         notify_release_notes_failure \
             "$module_name" \
@@ -722,7 +770,7 @@ for module_name in "${MODULES[@]}"; do
 
     if ! upload_with_retry "$package_filename"; then
         log "ERROR! upload still failed after 3 retries: ${package_filename}"
-        notify_message "True" "$(format_error_notice \
+        notify_upload_failure "$(format_error_notice \
             "${module_name}/${notify_type}" \
             "P2" \
             "处理中" \
@@ -737,7 +785,7 @@ for module_name in "${MODULES[@]}"; do
     if verify_algorithm_enabled; then
         if ! upload_with_retry "${package_filename}.${file_verify}" "False"; then
             log "ERROR! upload still failed after 3 retries: ${package_filename}.${file_verify}"
-            notify_message "True" "$(format_error_notice \
+            notify_upload_failure "$(format_error_notice \
                 "${module_name}/${notify_type}" \
                 "P2" \
                 "处理中" \

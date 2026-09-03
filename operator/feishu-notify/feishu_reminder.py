@@ -17,9 +17,11 @@ SUPPORTED_SCENES = {
     "upgrade_service",
     "monitor_service",
     "release_notes",
+    "backup_config",
     "backup_database",
     "account_billing",
 }
+SUPPORTED_SCENES_TEXT = ", ".join(sorted(SUPPORTED_SCENES))
 DEFAULT_CHUNK_SIZE = 3000
 
 
@@ -160,7 +162,7 @@ def main():
     if args.scene:
         if args.scene not in SUPPORTED_SCENES:
             print(
-                "参数错误，暂不支持此场景，仅支持: create_package, upgrade_service, monitor_service, release_notes, backup_database, account_billing",
+                f"参数错误，暂不支持此场景，仅支持: {SUPPORTED_SCENES_TEXT}",
                 file=sys.stderr,
             )
             sys.exit(1)

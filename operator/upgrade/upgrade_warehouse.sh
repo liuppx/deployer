@@ -115,8 +115,6 @@ if [[ "$WEBDAV_FLAG" == "all" || "$WEBDAV_FLAG" == "backend" ]]; then
     cp -f "${current_dir}/config.yaml" "${target_dir}/config.yaml"
     log "copied config: ${current_dir}/config.yaml -> ${target_dir}/config.yaml"
 
-    copy_backup_config_files "$current_dir" "$target_dir"
-
     log "start target warehouse: cd ${target_dir} && scripts/starter.sh"
     if ! (cd "$target_dir" && bash scripts/starter.sh >> "$LOGFILE" 2>&1); then
         log "ERROR! failed to start target warehouse service"

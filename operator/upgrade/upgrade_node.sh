@@ -38,6 +38,67 @@ resolve_version_dir() {
     printf '%s/%s' "$deploy_root" "$SELECTED_NAME"
 }
 
+resolve_secrets_paths() {
+    local config_path=$1
+    local root_dir=$2
+
+    node - "$config_path" "$root_dir" <<'NODE'
+const path = require('path')
+const config = require(path.resolve(process.argv[2]))
+const secrets = config.secrets || {}
+const rootDir = path.resolve(process.argv[3])
+process.stdout.write(`${path.resolve(rootDir, secrets.file || 'run/secrets.enc.json')}\n${path.resolve(rootDir, secrets.passwordFile || 'run/.secrets-password')}\n`)
+NODE
+}
+
+patch_starter_password_file_reuse() {
+    local starter_file=$1
+
+    node - "$starter_file" <<'NODE'
+const fs = require('fs')
+const starterFile = process.argv[2]
+const source = fs.readFileSync(starterFile, 'utf8')
+const from = `  if [[ -f "$SECRETS_PASSWORD_FILE" ]]; then
+    if ! is_production_environment; then
+      return 0
+    fi
+  fi`
+const to = `  if [[ -f "$SECRETS_PASSWORD_FILE" ]]; then
+    return 0
+  fi`
+
+if (source.includes(to)) {
+  process.exit(0)
+}
+
+if (!source.includes(from)) {
+  console.error('starter.sh password-file block was not recognized')
+  process.exit(1)
+}
+
+fs.writeFileSync(starterFile, source.replace(from, to))
+NODE
+}
+
+copy_run_dir() {
+    local src_dir=$1
+    local dst_dir=$2
+    local entries=()
+
+    [[ -d "$src_dir" ]] || return 1
+    mkdir -p "$dst_dir"
+
+    shopt -s dotglob nullglob
+    entries=("$src_dir"/*)
+    shopt -u dotglob
+
+    if [[ ${#entries[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    cp -a "${entries[@]}" "$dst_dir/"
+}
+
 if [[ $# -ne 2 ]]; then
     usage
     exit 1
@@ -94,6 +155,13 @@ fi
 [[ -e "${current_dir}/run" ]] || { log "ERROR! missing run: ${current_dir}/run"; exit 1; }
 [[ -d "${target_dir}/run" ]] || mkdir -p "${target_dir}/run"
 
+current_secrets_paths=$(resolve_secrets_paths "${current_dir}/config.js" "$current_dir") || {
+    log "ERROR! failed to resolve current node secrets config: ${current_dir}/config.js"
+    exit 1
+}
+current_secrets_file=$(printf '%s\n' "$current_secrets_paths" | sed -n '1p')
+current_secrets_password_file=$(printf '%s\n' "$current_secrets_paths" | sed -n '2p')
+
 log "stop current node: cd ${current_dir} && scripts/starter.sh stop"
 if ! (cd "$current_dir" && bash scripts/starter.sh stop >> "$LOGFILE" 2>&1); then
     log "ERROR! failed to stop current node service"
@@ -103,13 +171,45 @@ fi
 cp -f "${current_dir}/config.js" "${target_dir}/config.js"
 log "copied config: ${current_dir}/config.js -> ${target_dir}/config.js"
 
-cp -Rf "${current_dir}/run/." "${target_dir}/run/"
+copy_run_dir "${current_dir}/run" "${target_dir}/run" || {
+    log "ERROR! failed to copy run directory: ${current_dir}/run -> ${target_dir}/run"
+    exit 1
+}
 log "copied run: ${current_dir}/run -> ${target_dir}/run"
 
-copy_backup_config_files "$current_dir" "$target_dir"
+target_secrets_paths=$(resolve_secrets_paths "${target_dir}/config.js" "$target_dir") || {
+    log "ERROR! failed to resolve target node secrets config: ${target_dir}/config.js"
+    exit 1
+}
+target_secrets_file=$(printf '%s\n' "$target_secrets_paths" | sed -n '1p')
+target_secrets_password_file=$(printf '%s\n' "$target_secrets_paths" | sed -n '2p')
+
+if [[ -f "$current_secrets_password_file" ]]; then
+    mkdir -p "$(dirname "$target_secrets_password_file")"
+    cp -pf "$current_secrets_password_file" "$target_secrets_password_file" || {
+        log "ERROR! failed to copy secrets.passwordFile: ${current_secrets_password_file} -> ${target_secrets_password_file}"
+        exit 1
+    }
+    log "copied secrets.passwordFile: ${current_secrets_password_file} -> ${target_secrets_password_file}"
+else
+    log "WARN! skip missing secrets.passwordFile, target starter may prompt for password: ${current_secrets_password_file}"
+fi
+
+if [[ -f "$target_secrets_file" && -f "$target_secrets_password_file" ]]; then
+    patch_starter_password_file_reuse "${target_dir}/scripts/starter.sh" || {
+        log "ERROR! failed to patch target starter password-file handling: ${target_dir}/scripts/starter.sh"
+        exit 1
+    }
+    log "patched target starter to reuse configured secrets.passwordFile"
+fi
 
 log "start target node: cd ${target_dir} && scripts/starter.sh"
-if ! (cd "$target_dir" && bash scripts/starter.sh 2>&1 | tee -a "$LOGFILE"); then
+set +e
+(cd "$target_dir" && bash scripts/starter.sh) 2>&1 | tee -a "$LOGFILE"
+start_status=${PIPESTATUS[0]}
+set -e
+
+if [[ $start_status -ne 0 ]]; then
     log "ERROR! failed to start target node service"
     exit 1
 fi

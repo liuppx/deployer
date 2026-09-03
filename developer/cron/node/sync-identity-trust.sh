@@ -1,7 +1,33 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-NODE_URL="${PASSPORT_NODE_URL:-http://localhost:8100}"; OUT_DIR="${IDENTITY_TRUST_DIR:-$HOME/.config/node}"; LOG_FILE="${LOG_FILE:-}"
-log(){ printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" | tee -a "${LOG_FILE:-/dev/stderr}" >&2; }; die(){ log "ERROR: $*"; exit 1; }
+NODE_URL="${PASSPORT_NODE_URL:-http://localhost:8100}"; OUT_DIR="${PASSPORT_IDENTITY_TRUST_DIR:-/data/node}"
+
+init_log_file() {
+    local logfile_name=$1
+    local logfile_dir="/opt/logs"
+
+    LOGFILE="${logfile_dir}/${logfile_name}"
+    mkdir -p "$logfile_dir"
+    touch "$LOGFILE"
+
+    local filesize=0
+    filesize=$(stat -c "%s" "$LOGFILE" 2>/dev/null || echo 0)
+    if [[ "$filesize" -ge 1048576 ]]; then
+        printf 'clear old logs at %s to avoid log file too big\n' "$(date)" > "$LOGFILE"
+    fi
+}
+
+log() {
+    echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOGFILE"
+}
+
+log_err() {
+    echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOGFILE" >&2
+}
+
+die(){ log_err "ERROR: $*"; exit 1; }
+
+init_log_file "sync-identity-trust.log"
 command -v curl >/dev/null || die curl-required; command -v jq >/dev/null || die jq-required
 [[ "$NODE_URL" == https://* || "$NODE_URL" == http://localhost:* || "$NODE_URL" == http://127.0.0.1:* ]] || die "PASSPORT_NODE_URL must use HTTPS, except for localhost"; NODE_URL="${NODE_URL%/}"; scheme="${NODE_URL%%:*}"; host="${NODE_URL#*://}"; host="${host%%/*}"; origin="${scheme}://${host}"
 mkdir -p "$(dirname "$OUT_DIR")"; lock="${OUT_DIR}.lock"; mkdir "$lock" 2>/dev/null || { log 'another sync is running'; exit 0; }; tmp="$(mktemp -d "${OUT_DIR}.tmp.XXXXXX")"; trap 'rm -rf "$tmp"; rmdir "$lock" 2>/dev/null || true' EXIT; mkdir -p "$OUT_DIR"

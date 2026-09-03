@@ -15,6 +15,9 @@ fi
 
 init_log_file "upgrade.log"
 
+lock_file="${UPGRADE_LOCK_FILE:-/tmp/operator-upgrade.lock}"
+lock_notice_file="${UPGRADE_LOCK_NOTICE_FILE:-${lock_file}.notice}"
+lock_notice_interval="${UPGRADE_LOCK_NOTICE_INTERVAL_SECONDS:-300}"
 config_file="${script_dir}/modules.conf"
 env_file="${script_dir}/.env"
 package_root="/opt/package"
@@ -26,6 +29,59 @@ dingtalk_force_at="True"
 feishu_scene="upgrade_service"
 overall_status=0
 notify_type="版本升级"
+
+acquire_upgrade_lock() {
+    touch "$lock_file"
+    exec 200<>"$lock_file"
+    if ! flock -n 200; then
+        local now last_notice holder
+
+        now=$(date +%s)
+        last_notice=0
+        holder=$(tr '\n' ' ' < "$lock_file" | sed 's/[[:space:]]*$//' || true)
+        if [[ -f "$lock_notice_file" ]]; then
+            last_notice=$(stat -c "%Y" "$lock_notice_file" 2>/dev/null || echo 0)
+        fi
+
+        if [[ "$lock_notice_interval" =~ ^[0-9]+$ ]] && (( now - last_notice >= lock_notice_interval )); then
+            log "WARN! upgrade task is already running, skip this cycle, lock file: ${lock_file}, holder: ${holder:-unknown}"
+            touch "$lock_notice_file"
+        fi
+
+        exit 0
+    fi
+
+    : > "$lock_file"
+    printf 'pid=%s user=%s started=%s cwd=%s\n' "$$" "$(id -un 2>/dev/null || echo unknown)" "$(date '+%Y-%m-%d %H:%M:%S')" "$(pwd)" >&200
+    rm -f "$lock_notice_file"
+    log "acquired lock: ${lock_file}"
+}
+
+acquire_upgrade_lock
+
+if ! declare -F copy_backup_config_files >/dev/null 2>&1; then
+    copy_backup_config_files() {
+        local current_dir=$1
+        local target_dir=$2
+        local rel_path src dst
+
+        mkdir -p "${target_dir}/scripts"
+
+        for rel_path in "scripts/backup.conf" "scripts/.passphrase-file"; do
+            src="${current_dir}/${rel_path}"
+            dst="${target_dir}/${rel_path}"
+
+            if [[ -f "$src" ]]; then
+                cp -pf "$src" "$dst"
+                log "copied backup config file: ${src} -> ${dst}"
+            else
+                log "WARN! skip missing backup config file: ${src}"
+            fi
+        done
+
+        return 0
+    }
+fi
 
 if [[ -f "$env_file" ]]; then
     # shellcheck disable=SC1090
@@ -525,8 +581,6 @@ for module_name in "${MODULES[@]}"; do
     fi
     log "package extracted to ${EXTRACTED_DIR}"
 
-    copy_backup_config_files "$current_dir" "$EXTRACTED_DIR"
-
     upgrade_script="${script_dir}/upgrade_${module_name}.sh"
     if [[ ! -f "$upgrade_script" ]]; then
         log "ERROR! upgrade script is missing: ${upgrade_script}"
@@ -542,7 +596,20 @@ for module_name in "${MODULES[@]}"; do
         continue
     fi
 
-    if ! bash "$upgrade_script" "$current_version" "$target_version" >> "$LOGFILE" 2>&1; then
+    upgrade_script_status=0
+    if [[ "$module_name" == "node" ]]; then
+        set +e
+        bash "$upgrade_script" "$current_version" "$target_version" 200>&- 2>&1 | tee -a "$LOGFILE"
+        upgrade_script_status=${PIPESTATUS[0]}
+        set -e
+    else
+        set +e
+        bash "$upgrade_script" "$current_version" "$target_version" 200>&- >> "$LOGFILE" 2>&1
+        upgrade_script_status=$?
+        set -e
+    fi
+
+    if [[ $upgrade_script_status -ne 0 ]]; then
         log "ERROR! upgrade script failed for ${module_name}"
         notify_alert "$(format_error_notice \
             "${module_name}/${notify_type}" \
@@ -572,6 +639,11 @@ for module_name in "${MODULES[@]}"; do
 
     log "upgrade finished for ${module_name}: ${current_version} -> ${target_version}"
     log "active symlink updated: ${deploy_root}/${module_name} -> $(basename "$EXTRACTED_DIR")"
+
+    if ! copy_backup_config_files "$current_dir" "$EXTRACTED_DIR"; then
+        log "WARN! failed to copy optional backup config files for ${module_name}, continue config backup"
+    fi
+
     notify_info "$(format_upgrade_complete_notice \
         "${module_name}/服务升级" \
         "v${target_version}" \

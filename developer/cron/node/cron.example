@@ -1,2 +1,2 @@
 # Linux crontab: every 15 minutes
-*/15 * * * * PASSPORT_NODE_URL=http://localhost:8100 IDENTITY_TRUST_DIR=$HOME/.config/node /path/to/sync-identity-trust.sh >>$HOME/.config/node/sync.log 2>&1
+*/15 * * * * PASSPORT_NODE_URL=http://localhost:8100 PASSPORT_IDENTITY_TRUST_DIR=/data/node /root/code/deployer/developer/cron/node/sync-identity-trust.sh

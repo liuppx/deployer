@@ -275,6 +275,11 @@ case "$operation" in
                 log "ERROR! remote path not found: ${webdav_dir_url}/"
                 exit 4
                 ;;
+            412)
+                rm -f "$upload_body_file"
+                log "ERROR! target file already exists: ${remote_file_url}"
+                exit 4
+                ;;
             *)
                 if [[ -s "$upload_body_file" ]]; then
                     log "server response: $(tr '\n' ' ' < "$upload_body_file" | head -c 500)"
