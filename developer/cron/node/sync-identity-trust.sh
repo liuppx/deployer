@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-NODE_URL="${PASSPORT_NODE_URL:-http://localhost:8100}"; OUT_DIR="${PASSPORT_IDENTITY_TRUST_DIR:-$HOME/.config/node}"; LOG_FILE="${LOG_FILE:-}"
+NODE_URL="${PASSPORT_NODE_URL:-http://localhost:8100}"; OUT_DIR="${IDENTITY_TRUST_DIR:-$HOME/.config/node}"; LOG_FILE="${LOG_FILE:-}"
 log(){ printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" | tee -a "${LOG_FILE:-/dev/stderr}" >&2; }; die(){ log "ERROR: $*"; exit 1; }
 command -v curl >/dev/null || die curl-required; command -v jq >/dev/null || die jq-required
 [[ "$NODE_URL" == https://* || "$NODE_URL" == http://localhost:* || "$NODE_URL" == http://127.0.0.1:* ]] || die "PASSPORT_NODE_URL must use HTTPS, except for localhost"; NODE_URL="${NODE_URL%/}"; scheme="${NODE_URL%%:*}"; host="${NODE_URL#*://}"; host="${host%%/*}"; origin="${scheme}://${host}"
