@@ -357,23 +357,3 @@ ensure_extracted_dir() {
 
     EXTRACTED_DIR="${target_root}/${top_dir}"
 }
-
-copy_backup_config_files() {
-    local current_dir=$1
-    local target_dir=$2
-    local rel_path src dst
-
-    mkdir -p "${target_dir}/scripts"
-
-    for rel_path in "scripts/backup.conf" "scripts/.passphrase-file"; do
-        src="${current_dir}/${rel_path}"
-        dst="${target_dir}/${rel_path}"
-
-        if [[ -f "$src" ]]; then
-            cp -pf "$src" "$dst"
-            log "copied backup config file: ${src} -> ${dst}"
-        else
-            log "WARN! skip missing backup config file: ${src}"
-        fi
-    done
-}

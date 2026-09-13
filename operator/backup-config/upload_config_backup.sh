@@ -29,7 +29,7 @@ Usage:
   $0 [module ...]
 Notes:
   - when no module is provided, module list is read from ${backup_conf}
-  - module backup settings are read from ${deploy_root}/<module>/scripts/backup.conf
+  - module backup settings are read from /data/<module>/backup.conf
   - WebDAV config is read from ${backup_env_file}
   - only the latest backup file from today or yesterday is uploaded
 EOF
@@ -54,7 +54,7 @@ load_backup_modules() {
 
 load_module_backup_config() {
     local module_name=$1
-    local module_conf="${deploy_root}/${module_name}/scripts/backup.conf"
+    local module_conf="/data/${module_name}/backup.conf"
 
     if [[ ! -f "$module_conf" ]]; then
         log "ERROR! module backup config is missing: ${module_conf}"

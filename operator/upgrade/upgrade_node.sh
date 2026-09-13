@@ -58,25 +58,36 @@ patch_starter_password_file_reuse() {
 const fs = require('fs')
 const starterFile = process.argv[2]
 const source = fs.readFileSync(starterFile, 'utf8')
-const from = `  if [[ -f "$SECRETS_PASSWORD_FILE" ]]; then
-    if ! is_production_environment; then
-      return 0
-    fi
-  fi`
 const to = `  if [[ -f "$SECRETS_PASSWORD_FILE" ]]; then
     return 0
   fi`
+const patterns = [
+  `  if [[ -f "$SECRETS_PASSWORD_FILE" ]]; then
+    if is_production_environment; then
+      TEMP_SECRETS_PASSWORD_FILE="$SECRETS_PASSWORD_FILE"
+    fi
+    return 0
+  fi`,
+  `  if [[ -f "$SECRETS_PASSWORD_FILE" ]]; then
+    if ! is_production_environment; then
+      return 0
+    fi
+  fi`,
+]
 
 if (source.includes(to)) {
   process.exit(0)
 }
 
-if (!source.includes(from)) {
-  console.error('starter.sh password-file block was not recognized')
-  process.exit(1)
+for (const pattern of patterns) {
+  if (source.includes(pattern)) {
+    fs.writeFileSync(starterFile, source.replace(pattern, to))
+    process.exit(0)
+  }
 }
 
-fs.writeFileSync(starterFile, source.replace(from, to))
+console.error('starter.sh password-file block was not recognized')
+process.exit(1)
 NODE
 }
 
@@ -138,6 +149,7 @@ current_secrets_paths=$(resolve_secrets_paths "${current_dir}/config.js" "$curre
     log "ERROR! failed to resolve current node secrets config: ${current_dir}/config.js"
     exit 1
 }
+current_secrets_file=$(printf '%s\n' "$current_secrets_paths" | sed -n '1p')
 current_secrets_password_file=$(printf '%s\n' "$current_secrets_paths" | sed -n '2p')
 
 log "stop current node: cd ${current_dir} && scripts/starter.sh stop"
@@ -158,6 +170,19 @@ target_secrets_paths=$(resolve_secrets_paths "${target_dir}/config.js" "$target_
 }
 target_secrets_file=$(printf '%s\n' "$target_secrets_paths" | sed -n '1p')
 target_secrets_password_file=$(printf '%s\n' "$target_secrets_paths" | sed -n '2p')
+
+if [[ "$current_secrets_file" == "$target_secrets_file" ]]; then
+    log "skip copying secrets.file, source and target are the same file: ${current_secrets_file}"
+elif [[ -f "$current_secrets_file" ]]; then
+    mkdir -p "$(dirname "$target_secrets_file")"
+    cp -pf "$current_secrets_file" "$target_secrets_file" || {
+        log "ERROR! failed to copy secrets.file: ${current_secrets_file} -> ${target_secrets_file}"
+        exit 1
+    }
+    log "copied secrets.file: ${current_secrets_file} -> ${target_secrets_file}"
+else
+    log "WARN! skip missing secrets.file: ${current_secrets_file}"
+fi
 
 if [[ "$current_secrets_password_file" == "$target_secrets_password_file" ]]; then
     log "skip copying secrets.passwordFile, source and target are the same file: ${current_secrets_password_file}"
